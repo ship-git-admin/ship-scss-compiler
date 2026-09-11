@@ -94,6 +94,10 @@ php tests/test_core.php
 
 ## 変更履歴
 
+### 1.3.1
+
+- 同梱のPlugin Update Checkerを公式v5.7へ更新
+
 ### 1.3.0
 
 - 入出力ディレクトリ、明示エントリーポイント、再帰検出を設定化

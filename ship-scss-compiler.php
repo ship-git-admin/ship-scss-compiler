@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Ship SCSS Compiler
  * Description: Compiles the active theme's SCSS files safely with scssphp.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Requires PHP: 7.2
  */
 
 defined('ABSPATH') || exit;
 
-define('SHIP_SCSS_COMPILER_VERSION', '1.3.0');
+define('SHIP_SCSS_COMPILER_VERSION', '1.3.1');
 define('SHIP_SCSS_COMPILER_FILE', __FILE__);
 define('SHIP_SCSS_COMPILER_DIR', plugin_dir_path(__FILE__));
 define('SHIP_SCSS_COMPILER_REPOSITORY', 'https://github.com/ship-git-admin/ship-scss-compiler');
