@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.1.0
+Version: 1.2.0
 
 Compiles the active theme's top-level SCSS entrypoints with the bundled scssphp library.
 
@@ -18,6 +18,14 @@ file or imported partial is newer than an output CSS file.
 Each CSS file is generated in a same-directory temporary file and atomically replaced only
 after non-empty output validation. Compilation errors, empty output, memory errors, and
 write failures leave the previous CSS file untouched and are appended to scss/error_log.log.
+
+== CSS debugging ==
+
+Administrators can enable CSS debugging from Settings > Ship SCSS Compiler. The next
+request generates expanded CSS and an external source map (.css.map), allowing browser
+developer tools to trace CSS back to the original SCSS file and line. Normal operation
+remains compressed CSS without source maps, and disabling debugging does not delete
+existing source map files.
 
 == GitHub updates ==
 

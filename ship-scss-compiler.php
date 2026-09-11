@@ -2,16 +2,18 @@
 /**
  * Plugin Name: Ship SCSS Compiler
  * Description: Compiles the active theme's SCSS files safely with scssphp.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Requires PHP: 7.2
  */
 
 defined('ABSPATH') || exit;
 
-define('SHIP_SCSS_COMPILER_VERSION', '1.1.0');
+define('SHIP_SCSS_COMPILER_VERSION', '1.2.0');
 define('SHIP_SCSS_COMPILER_FILE', __FILE__);
 define('SHIP_SCSS_COMPILER_DIR', plugin_dir_path(__FILE__));
 define('SHIP_SCSS_COMPILER_REPOSITORY', 'https://github.com/ship-git-admin/ship-scss-compiler');
+define('SHIP_SCSS_COMPILER_DEBUG_OPTION', 'ship_scss_compiler_debug');
+define('SHIP_SCSS_COMPILER_PROFILE_OPTION', 'ship_scss_compiler_last_profile');
 
 if (version_compare(PHP_VERSION, '7.2', '<')) {
     add_action('admin_notices', function () {
@@ -54,6 +56,99 @@ function ship_scss_compiler_log($message) {
     } else {
         error_log('Ship SCSS Compiler: ' . $message);
     }
+}
+
+/**
+ * Return whether the optional debug output is enabled.
+ *
+ * Debug output is intentionally opt-in. The filter is useful for local or
+ * environment-specific overrides without changing the stored setting.
+ *
+ * @return bool
+ */
+function ship_scss_compiler_debug_enabled() {
+    return (bool) apply_filters(
+        'ship_scss_compiler_debug',
+        (bool) get_option(SHIP_SCSS_COMPILER_DEBUG_OPTION, false)
+    );
+}
+
+/**
+ * Return the output profile used for compile invalidation.
+ *
+ * @return string
+ */
+function ship_scss_compiler_profile() {
+    return ship_scss_compiler_debug_enabled() ? 'debug' : 'production';
+}
+
+/**
+ * Sanitize the settings checkbox value.
+ *
+ * @param mixed $value
+ * @return int
+ */
+function ship_scss_compiler_sanitize_debug($value) {
+    return empty($value) ? 0 : 1;
+}
+
+function ship_scss_compiler_register_settings() {
+    register_setting(
+        'ship_scss_compiler_settings',
+        SHIP_SCSS_COMPILER_DEBUG_OPTION,
+        array(
+            'type'              => 'boolean',
+            'sanitize_callback' => 'ship_scss_compiler_sanitize_debug',
+            'default'           => false,
+        )
+    );
+}
+add_action('admin_init', 'ship_scss_compiler_register_settings');
+
+function ship_scss_compiler_add_settings_page() {
+    add_options_page(
+        'Ship SCSS Compiler',
+        'Ship SCSS Compiler',
+        'manage_options',
+        'ship-scss-compiler',
+        'ship_scss_compiler_render_settings_page'
+    );
+}
+add_action('admin_menu', 'ship_scss_compiler_add_settings_page');
+
+function ship_scss_compiler_render_settings_page() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
+    $debug = ship_scss_compiler_debug_enabled();
+    $profile = get_option(SHIP_SCSS_COMPILER_PROFILE_OPTION, '未コンパイル');
+    ?>
+    <div class="wrap">
+        <h1>Ship SCSS Compiler</h1>
+        <p>テーマ内のSCSSを、既存の構成を維持したままCSSへコンパイルします。</p>
+        <form method="post" action="options.php">
+            <?php settings_fields('ship_scss_compiler_settings'); ?>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row">CSSデバッグ</th>
+                    <td>
+                        <label>
+                            <input type="checkbox" name="<?php echo esc_attr(SHIP_SCSS_COMPILER_DEBUG_OPTION); ?>" value="1" <?php checked($debug); ?> />
+                            展開形式CSSとソースマップ（.css.map）を生成する
+                        </label>
+                        <p class="description">有効にすると、ブラウザの開発者ツールからSCSSの元ファイル・行を追跡しやすくなります。通常時は圧縮CSSのままで、速度とファイル容量への影響はありません。</p>
+                        <p class="description"><strong>切り替え後の反映:</strong> 設定保存後、次回のWordPressリクエストでCSSを安全に再生成します。無効化しても既存の.mapファイルは削除せず、CSSから参照されなくなります。</p>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button('設定を保存'); ?>
+        </form>
+        <h2>現在の状態</h2>
+        <p>出力モード: <strong><?php echo esc_html($debug ? 'デバッグ（展開CSS＋ソースマップ）' : '通常（圧縮CSS）'); ?></strong></p>
+        <p>最終コンパイルモード: <strong><?php echo esc_html($profile); ?></strong></p>
+    </div>
+    <?php
 }
 
 /**
@@ -149,10 +244,20 @@ function ship_scss_compiler_needs_compile($entrypoints, $css_dir, $latest_source
         return false;
     }
 
+    $profile = ship_scss_compiler_profile();
+
+    if (get_option(SHIP_SCSS_COMPILER_PROFILE_OPTION, '') !== $profile) {
+        return true;
+    }
+
     foreach ($entrypoints as $source) {
         $output = ship_scss_compiler_output_path($source, $css_dir);
 
         if (!is_file($output) || (int) @filemtime($output) < $latest_source_mtime) {
+            return true;
+        }
+
+        if ($profile === 'debug' && !is_file($output . '.map')) {
             return true;
         }
     }
@@ -170,11 +275,15 @@ function ship_scss_compiler_needs_compile($entrypoints, $css_dir, $latest_source
  * @return bool
  */
 function ship_scss_compiler_compile_one($source, $output, $scss_dir) {
-    $temp  = null;
-    $state = array(
-        'done'   => false,
-        'temp'   => null,
-        'source' => $source,
+    $temp       = null;
+    $map_temp   = null;
+    $map_output = $output . '.map';
+    $debug      = ship_scss_compiler_debug_enabled();
+    $state      = array(
+        'done'      => false,
+        'temp'      => null,
+        'map_temp'  => null,
+        'source'    => $source,
     );
 
     register_shutdown_function(function () use (&$state) {
@@ -189,6 +298,10 @@ function ship_scss_compiler_compile_one($source, $output, $scss_dir) {
 
         if (!empty($state['temp']) && is_file($state['temp'])) {
             @unlink($state['temp']);
+        }
+
+        if (!empty($state['map_temp']) && is_file($state['map_temp'])) {
+            @unlink($state['map_temp']);
         }
 
         ship_scss_compiler_log(
@@ -212,14 +325,34 @@ function ship_scss_compiler_compile_one($source, $output, $scss_dir) {
 
         $compiler = new Compiler();
         $compiler->setImportPaths($scss_dir);
-        $compiler->setOutputStyle('compressed');
-        $compiler->setSourceMap(Compiler::SOURCE_MAP_NONE);
+
+        if ($debug) {
+            $compiler->setOutputStyle('expanded');
+            $compiler->setSourceMap(Compiler::SOURCE_MAP_FILE);
+            $compiler->setSourceMapOptions(
+                array(
+                    'sourceMapFilename' => basename($output),
+                    'sourceMapURL'      => basename($map_output),
+                    'outputSourceFiles' => true,
+                    'sourceMapRootpath' => '../scss/',
+                    'sourceMapBasepath' => trailingslashit($scss_dir),
+                )
+            );
+        } else {
+            $compiler->setOutputStyle('compressed');
+            $compiler->setSourceMap(Compiler::SOURCE_MAP_NONE);
+        }
 
         $result = $compiler->compileString($input, $source);
         $css    = $result->getCss();
 
         if (!is_string($css) || trim($css) === '') {
             throw new RuntimeException('Compiler returned empty CSS; existing CSS was preserved.');
+        }
+
+        $source_map = $debug ? $result->getSourceMap() : null;
+        if ($debug && (!is_string($source_map) || trim($source_map) === '')) {
+            throw new RuntimeException('Compiler returned an empty source map; existing CSS was preserved.');
         }
 
         $temp = tempnam(dirname($output), '.ship-scss-');
@@ -231,6 +364,29 @@ function ship_scss_compiler_compile_one($source, $output, $scss_dir) {
         $bytes = file_put_contents($temp, $css, LOCK_EX);
         if ($bytes === false || $bytes !== strlen($css) || (int) @filesize($temp) < 1) {
             throw new RuntimeException('Temporary CSS validation failed.');
+        }
+
+        if ($debug) {
+            $map_temp = tempnam(dirname($map_output), '.ship-scss-map-');
+            if ($map_temp === false) {
+                throw new RuntimeException('Unable to create a temporary source map file.');
+            }
+            $state['map_temp'] = $map_temp;
+
+            $map_bytes = file_put_contents($map_temp, $source_map, LOCK_EX);
+            if ($map_bytes === false || $map_bytes !== strlen($source_map) || (int) @filesize($map_temp) < 1) {
+                throw new RuntimeException('Temporary source map validation failed.');
+            }
+
+            $map_mode = is_file($map_output) ? (@fileperms($map_output) & 0777) : 0644;
+            @chmod($map_temp, $map_mode ?: 0644);
+
+            // Publish the map first. If CSS replacement fails, the old CSS is
+            // still valid and the new map remains harmlessly unreferenced.
+            if (!@rename($map_temp, $map_output)) {
+                throw new RuntimeException('Atomic source map replacement failed.');
+            }
+            $state['map_temp'] = null;
         }
 
         $mode = is_file($output) ? (@fileperms($output) & 0777) : 0644;
@@ -307,6 +463,10 @@ function ship_scss_compiler_run($force = false) {
             if (!ship_scss_compiler_compile_one($source, $output, $scss_dir)) {
                 $success = false;
             }
+        }
+
+        if ($success) {
+            update_option(SHIP_SCSS_COMPILER_PROFILE_OPTION, ship_scss_compiler_profile(), false);
         }
     } finally {
         @flock($lock, LOCK_UN);
