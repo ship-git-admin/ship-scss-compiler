@@ -269,7 +269,13 @@ class Ship_SCSS_Compiler {
 
         $lock = $this->acquire_lock($ctx['key']);
         if (!$lock) {
-            $this->log_event('別の処理が実行中のため、今回の処理を開始できませんでした。', $ctx, '', 'lock');
+            // Automatic frontend requests can legitimately overlap while one
+            // request is compiling. Do not turn normal lock contention into a
+            // database log write on every concurrent request. Manual runs
+            // still retain the diagnostic entry and admin notice.
+            if ($action !== 'auto') {
+                $this->log_event('別の処理が実行中のため、今回の処理を開始できませんでした。', $ctx, '', 'lock');
+            }
             return array('locked' => true, 'counts' => array('success' => 0, 'failure' => 0, 'skipped' => 0), 'results' => array());
         }
 

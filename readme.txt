@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.3.1
+Version: 1.3.2
 
 Safely compiles SCSS entrypoints in the active theme with the bundled scssphp library.
 
@@ -78,6 +78,9 @@ The existing release-only update checker remains in place. It accepts only the a
     ship-scss-compiler-x.y.z.zip
 
 == Changelog ==
+
+= 1.3.2 =
+* Automatic lock contention is skipped without writing a database log entry; manual lock conflicts remain visible.
 
 = 1.3.1 =
 * Updated the bundled Plugin Update Checker library to official v5.7.

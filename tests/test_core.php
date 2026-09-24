@@ -154,6 +154,16 @@ $report = $compiler->run(true, array(), 'manual-all');
 ship_test_assert(!empty($report['locked']), 'concurrent lock is reported as not successful');
 $release_method->invoke($compiler, $held_lock);
 
+$logs_before_auto_lock = get_option(Ship_SCSS_Compiler::LOG_OPTION, array());
+delete_option(Ship_SCSS_Compiler::LOG_OPTION);
+$held_lock = $acquire_method->invoke($compiler, $ctx_method->invoke($compiler)['key']);
+ship_test_reset_guard();
+$report = $compiler->run(false, array(), 'auto');
+$auto_lock_logs = get_option(Ship_SCSS_Compiler::LOG_OPTION, array());
+ship_test_assert(!empty($report['locked']) && empty($auto_lock_logs), 'automatic lock contention is not persisted as a log');
+$release_method->invoke($compiler, $held_lock);
+$GLOBALS['options'][Ship_SCSS_Compiler::LOG_OPTION] = $logs_before_auto_lock;
+
 $logs = get_option(Ship_SCSS_Compiler::LOG_OPTION, array());
 ship_test_assert(is_array($logs) && count($logs) >= 1 && count($logs) <= 100, 'failure logs are stored in bounded non-autoload state');
 $valid_settings = $compiler->settings();
