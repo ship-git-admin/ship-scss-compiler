@@ -502,6 +502,9 @@ class Ship_SCSS_Compiler {
                 throw new RuntimeException('CSSの公開に失敗しました。');
             }
             $published_css = true;
+            // Theme enqueue code reads filemtime() later in this request.
+            // Discard metadata cached while inspecting the previous output.
+            clearstatcache(true, $plan['output_abs']);
             if ($backup_css && is_file($backup_css)) { @unlink($backup_css); }
             if ($backup_map && is_file($backup_map)) { @unlink($backup_map); }
             $included = method_exists($result, 'getIncludedFiles') ? (array) $result->getIncludedFiles() : array();
