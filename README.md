@@ -47,15 +47,15 @@ pages/about.scss
 
 一覧では、入力・出力パス、状態、最終成功日時、処理時間、CSS内容ハッシュ、モード、依存数、直近エラー、再試行時刻を確認できます。失敗時は「既存CSSを維持」または「公開可能なCSSがまだありません」と区別して扱います。
 
-## FTP/SFTP更新後の定期コンパイル
+## FTP/SFTP更新後の即時コンパイル
 
-FTP/SFTPのアップロード完了をWordPressが直接受け取る仕組みはないため、サーバーCronで同梱のPython監視スクリプトを1分ごとに実行できます。監視スクリプトはSCSSの内容ハッシュだけを調べ、変更が安定した時だけWP-CLIを起動します。WP-CLIは通常の検査キャッシュを迂回して再検査し、変更されたエントリーポイントと依存CSSだけをコンパイルします。
+Linuxのファイル変更通知を使用します。サーバーCronで同梱のPython監視スクリプトを1分ごとに起動し、SCSSディレクトリを既定55秒だけ監視して終了します。FTP/SFTPの書き込み完了またはファイル名の切り替えを検知し、SCSSの内容が安定した時だけWP-CLIを起動します。WP-CLIは通常の検査キャッシュを迂回して再検査し、変更されたエントリーポイントと依存CSSだけをコンパイルします。
 
 ```cron
-* * * * * /usr/bin/python3 /absolute/path/to/wordpress/wp-content/plugins/ship-scss-compiler/bin/compile_if_changed.py --wp-path=/absolute/path/to/wordpress --scss-dir=/absolute/path/to/wordpress/wp-content/themes/your-theme/scss --php=/usr/bin/php8.3 --wp-cli=/usr/bin/wp >/dev/null 2>&1
+* * * * * /usr/bin/python3 /absolute/path/to/wordpress/wp-content/plugins/ship-scss-compiler/bin/watch_and_compile.py --wp-path=/absolute/path/to/wordpress --scss-dir=/absolute/path/to/wordpress/wp-content/themes/your-theme/scss --php=/usr/bin/php8.3 --wp-cli=/usr/bin/wp >/dev/null 2>&1
 ```
 
-このスクリプトを1分ごとのCronに登録すると、通常時はWordPressを起動せず、SCSS更新時だけコンパイルします。反映時間はCronの間隔に最大約1分、アップロード完了を確認する待ち時間に既定1.5秒が加わります。ハッシュとロックはCron実行ユーザー専用の権限700の一時ディレクトリに保存します。フロントエンドや管理画面のリクエスト中にコンパイルさせない場合は、Cron設定と動作確認の後に管理画面の「外部トリガー専用モード」を有効化します。FTP/SFTPのアップロードイベントそのものを受け取る方式ではありません。
+通常時はWordPressを起動せず、アップロード完了後は内容安定確認の既定1.5秒とコンパイル時間を経て反映します。監視プロセスは毎分終了するため、最大数秒の監視空白があり、その間の更新は次回Cronの開始時に内容ハッシュで拾います。通知機能が使えない場合も、毎分の内容チェックが残ります。ハッシュとロックはCron実行ユーザー専用の権限700の一時ディレクトリに保存します。フロントエンドや管理画面のリクエスト中にコンパイルさせない場合は、Cron設定と動作確認の後に管理画面の「外部トリガー専用モード」を有効化します。旧スクリプト `bin/compile_if_changed.py` に戻せば従来の毎分チェック方式に戻せます。
 
 ## CSSキャッシュ更新補助
 
@@ -112,6 +112,11 @@ python3 -B -m unittest discover -s tests -p 'test_*.py'
 入力・出力パス、partial、空ファイル、差分判定、デバッグmap、失敗保護、再試行抑制、明示指定、ネスト出力、選択実行、ログ上限を検証します。
 
 ## 変更履歴
+
+### 1.3.5
+
+- Linuxのファイル変更通知でFTP/SFTPアップロード完了を検知し、短時間で差分コンパイル
+- 監視間の更新や通知機能が使えない環境では、毎分の内容ハッシュ確認で補完
 
 ### 1.3.4
 

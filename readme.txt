@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.3.4
+Version: 1.3.5
 
 Safely compiles SCSS entrypoints in the active theme with the bundled scssphp library.
 
@@ -41,15 +41,16 @@ Administrators with manage_options can use “Recompile all” or select verifie
 from the status table. Both actions use POST, nonce verification, server-side path
 validation, a shared lock, and a redirect after processing. A lock conflict is not a success.
 
-== FTP/SFTP update polling ==
+== FTP/SFTP upload watcher ==
 
-Run `bin/compile_if_changed.py` from a once-per-minute server cron. It hashes SCSS inputs
-without booting WordPress and starts WP-CLI only after a change is detected and stable.
-WP-CLI bypasses the normal scan cache and recompiles only changed entrypoints and their
-dependents. A change can take up to one cron interval plus the default 1.5-second
-stability check. State and lock files are stored in a mode-700 temporary directory owned
-by the cron user. To keep compilation out of visitor and admin requests, enable “External
-trigger only” in plugin settings after configuring and verifying cron.
+On Linux, run `bin/watch_and_compile.py` from a once-per-minute server cron. It watches
+SCSS directories for a completed write or rename for up to 55 seconds, then exits. An
+initial content scan covers gaps between cron runs. If inotify is unavailable, the
+initial scan still runs and the next cron invocation retries. WordPress starts only
+after a stable SCSS content change; WP-CLI bypasses the normal scan cache and recompiles
+changed entrypoints and dependents. `bin/compile_if_changed.py` remains available for
+polling-only operation and rollback. State and lock files are kept in a mode-700 temporary
+directory owned by the cron user. Enable “External trigger only” after verifying cron.
 
 == CSS cache-busting ==
 
@@ -88,6 +89,10 @@ The existing release-only update checker remains in place. It accepts only the a
     ship-scss-compiler-x.y.z.zip
 
 == Changelog ==
+
+= 1.3.5 =
+* Watch completed SCSS uploads with bounded Linux inotify sessions from Cron.
+* Retain content scans between watcher sessions and polling-only fallback.
 
 = 1.3.4 =
 * Added a fresh-scan, changed-only WP-CLI command for FTP/SFTP update schedulers.
