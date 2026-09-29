@@ -5,13 +5,24 @@
  */
 
 define('ABSPATH', __DIR__ . '/');
+define('WP_CLI', false);
 $options = array();
 $theme_dir = sys_get_temp_dir() . '/ship-scss-test-' . uniqid('', true);
 mkdir($theme_dir . '/scss/sub', 0755, true);
 mkdir($theme_dir . '/css', 0755, true);
 
+class WP_CLI {
+    public static $commands = array();
+    public static $messages = array();
+    public static function add_command($name, $callback) { self::$commands[$name] = $callback; }
+    public static function log($message) { self::$messages[] = (string) $message; }
+    public static function warning($message) { self::$messages[] = (string) $message; }
+    public static function error($message) { throw new RuntimeException((string) $message); }
+}
+
 function add_action($a, $b, $c = 10, $d = 1) {}
 function add_filter($a, $b, $c = 10, $d = 1) { if ($a === 'ship_scss_compiler_scan_interval') { $GLOBALS['ship_test_scan_filter'] = $b; } }
+function is_admin() { return false; }
 function apply_filters($tag, $value) { return isset($GLOBALS['ship_test_scan_filter']) && $tag === 'ship_scss_compiler_scan_interval' ? call_user_func($GLOBALS['ship_test_scan_filter'], $value) : $value; }
 function get_option($name, $default = false) { return array_key_exists($name, $GLOBALS['options']) ? $GLOBALS['options'][$name] : $default; }
 function update_option($name, $value, $autoload = null) { $GLOBALS['options'][$name] = $value; return true; }
@@ -67,12 +78,24 @@ ship_test_assert(!is_file($theme_dir . '/css/sub/page.css'), 'recursive entrypoi
 
 $home_before = file_get_contents($theme_dir . '/css/home.css');
 $other_before = filemtime($theme_dir . '/css/other.css');
+$GLOBALS['ship_test_scan_filter'] = function () { return 0; };
 ship_test_write($theme_dir . '/scss/home.scss', '@import "shared"; .home { color: #654321; }');
 ship_test_reset_guard();
-$report = $compiler->run(false, array(), 'auto');
-ship_test_assert($report['results']['scss/home.scss']['status'] === 'success', 'only changed entrypoint is recompiled');
-ship_test_assert(file_get_contents($theme_dir . '/css/home.css') !== $home_before, 'changed CSS content is published');
+$compiler->maybe_run();
+ship_test_assert(file_get_contents($theme_dir . '/css/home.css') !== $home_before, 'front-end auto compilation remains enabled by default');
+$after_auto = file_get_contents($theme_dir . '/css/home.css');
+$GLOBALS['options'][Ship_SCSS_Compiler::SETTINGS_OPTION]['external_trigger_only'] = true;
+$GLOBALS['ship_test_scan_filter'] = function () { return 3600; };
+ship_test_write($theme_dir . '/scss/home.scss', '@import "shared"; .home { color: #abcdef; }');
+ship_test_reset_guard();
+$compiler->maybe_run();
+ship_test_assert(file_get_contents($theme_dir . '/css/home.css') === $after_auto, 'external-trigger mode prevents compilation during a site request');
+$report = $compiler->cli_compile_changed(array(), array());
+ship_test_assert($report['results']['scss/home.scss']['status'] === 'success', 'external scan bypasses the normal scan cache');
+ship_test_assert(file_get_contents($theme_dir . '/css/home.css') !== $after_auto, 'external scan publishes changed CSS');
 ship_test_assert(filemtime($theme_dir . '/css/other.css') === $other_before, 'unrelated CSS is not regenerated');
+$GLOBALS['options'][Ship_SCSS_Compiler::SETTINGS_OPTION]['external_trigger_only'] = false;
+$GLOBALS['ship_test_scan_filter'] = function () { return 0; };
 
 $GLOBALS['options'][Ship_SCSS_Compiler::SETTINGS_OPTION]['debug'] = true;
 $GLOBALS['options'][Ship_SCSS_Compiler::SETTINGS_OPTION]['embed_sources'] = false;
@@ -169,5 +192,14 @@ ship_test_assert(is_array($logs) && count($logs) >= 1 && count($logs) <= 100, 'f
 $valid_settings = $compiler->settings();
 $rejected = $compiler->sanitize_settings(array_merge($valid_settings, array('input_dir' => '../outside')));
 ship_test_assert($rejected === $valid_settings, 'unsafe settings preserve the previous valid configuration');
+
+ship_test_write($theme_dir . '/scss/cli-broken.scss', '.cli-broken { color: ; }');
+ship_test_reset_guard();
+try {
+    $compiler->cli_compile_changed(array(), array());
+    ship_test_assert(false, 'external CLI failure exits unsuccessfully so the file watcher retries');
+} catch (RuntimeException $error) {
+    ship_test_assert(strpos($error->getMessage(), '失敗') !== false, 'external CLI failure exits unsuccessfully so the file watcher retries');
+}
 
 echo "All Ship SCSS Compiler core tests passed.\n";

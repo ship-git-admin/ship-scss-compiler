@@ -34,6 +34,10 @@ class Ship_SCSS_Compiler {
         add_action('admin_post_ship_scss_compiler_delete_legacy_log', array($this, 'handle_delete_legacy_log'));
         add_filter('style_loader_src', array($this, 'filter_style_loader_src'), 20, 2);
         add_action('wp_loaded', array($this, 'maybe_run'), 1);
+
+        if (defined('WP_CLI') && WP_CLI && class_exists('WP_CLI')) {
+            \WP_CLI::add_command('ship-scss compile-changed', array($this, 'cli_compile_changed'));
+        }
     }
 
     public static function defaults() {
@@ -42,6 +46,7 @@ class Ship_SCSS_Compiler {
             'embed_sources'         => false,
             'delete_maps_on_disable'=> true,
             'cache_busting'         => false,
+            'external_trigger_only' => false,
             'input_dir'             => 'scss',
             'output_dir'            => 'css',
             'entry_mode'            => 'auto',
@@ -68,7 +73,7 @@ class Ship_SCSS_Compiler {
         $value = is_array($value) ? $value : array();
         $next = self::defaults();
 
-        foreach (array('debug', 'embed_sources', 'delete_maps_on_disable', 'cache_busting', 'include_subdirectories') as $key) {
+        foreach (array('debug', 'embed_sources', 'delete_maps_on_disable', 'cache_busting', 'external_trigger_only', 'include_subdirectories') as $key) {
             $next[$key] = !empty($value[$key]);
         }
 
@@ -127,7 +132,7 @@ class Ship_SCSS_Compiler {
             $settings['debug'] = (bool) get_option(SHIP_SCSS_COMPILER_DEBUG_OPTION, false);
         }
 
-        foreach (array('debug', 'embed_sources', 'delete_maps_on_disable', 'cache_busting', 'include_subdirectories') as $key) {
+        foreach (array('debug', 'embed_sources', 'delete_maps_on_disable', 'cache_busting', 'external_trigger_only', 'include_subdirectories') as $key) {
             $settings[$key] = !empty($settings[$key]);
         }
         $settings['entry_mode'] = $settings['entry_mode'] === 'explicit' ? 'explicit' : 'auto';
@@ -238,10 +243,52 @@ class Ship_SCSS_Compiler {
     }
 
     public function maybe_run() {
-        if (function_exists('is_admin') && is_admin()) {
+        if ((defined('WP_CLI') && WP_CLI) || (function_exists('is_admin') && is_admin()) || !empty($this->settings()['external_trigger_only'])) {
             return;
         }
         $this->run(false, array(), 'auto');
+    }
+
+    /**
+     * WP-CLI entrypoint for external schedulers such as a server cron.
+     * It always refreshes the SCSS inventory, while compiling only changed
+     * entrypoints and their dependents.
+     *
+     * @param array $args
+     * @param array $assoc_args
+     * @return array
+     */
+    public function cli_compile_changed($args, $assoc_args) {
+        unset($args, $assoc_args);
+        $report = $this->run(false, array(), 'external');
+
+        if (!empty($report['locked'])) {
+            \WP_CLI::error('別のコンパイルが実行中のためスキップしました。次回の定期実行で再確認します。');
+        }
+
+        $counts = isset($report['counts']) && is_array($report['counts'])
+            ? $report['counts']
+            : array('success' => 0, 'failure' => 0, 'skipped' => 0);
+        if ($counts['success'] > 0 || $counts['failure'] > 0) {
+            \WP_CLI::log(sprintf(
+                'Ship SCSS Compiler: 成功 %d、失敗 %d、変更なし/対象外 %d',
+                (int) $counts['success'],
+                (int) $counts['failure'],
+                (int) $counts['skipped']
+            ));
+        }
+
+        $retry_pending = false;
+        foreach ((array) (isset($report['results']) ? $report['results'] : array()) as $result) {
+            if (is_array($result) && !empty($result['retry_at'])) {
+                $retry_pending = true;
+                break;
+            }
+        }
+        if ($counts['failure'] > 0 || $retry_pending) {
+            \WP_CLI::error('SCSSのコンパイル失敗または再試行待ちがあります。次回の定期実行で再確認します。');
+        }
+        return $report;
     }
 
     /**
@@ -273,7 +320,7 @@ class Ship_SCSS_Compiler {
             // request is compiling. Do not turn normal lock contention into a
             // database log write on every concurrent request. Manual runs
             // still retain the diagnostic entry and admin notice.
-            if ($action !== 'auto') {
+            if (!in_array($action, array('auto', 'external'), true)) {
                 $this->log_event('別の処理が実行中のため、今回の処理を開始できませんでした。', $ctx, '', 'lock');
             }
             return array('locked' => true, 'counts' => array('success' => 0, 'failure' => 0, 'skipped' => 0), 'results' => array());
@@ -284,7 +331,7 @@ class Ship_SCSS_Compiler {
             $state['contexts'][$ctx['key']] = $this->new_context_state($ctx);
         }
         $context_state = $state['contexts'][$ctx['key']];
-        $inventory = $this->scan_inventory($ctx, (bool) $force);
+        $inventory = $this->scan_inventory($ctx, (bool) $force || $action === 'external');
         $plans = $this->entry_plans($ctx, $inventory);
         $selected_map = array();
         foreach ((array) $selected as $path) {
@@ -880,6 +927,7 @@ class Ship_SCSS_Compiler {
                     <tr><th scope="row">sourcesContent</th><td><label><input type="checkbox" name="<?php echo esc_attr(self::SETTINGS_OPTION); ?>[embed_sources]" value="1" <?php checked($settings['embed_sources']); ?> /> ソースマップにSCSS内容を埋め込む</label></td></tr>
                     <tr><th scope="row">デバッグ解除時の.map削除</th><td><label><input type="checkbox" name="<?php echo esc_attr(self::SETTINGS_OPTION); ?>[delete_maps_on_disable]" value="1" <?php checked($settings['delete_maps_on_disable']); ?> /> このプラグインの所有が確認できる.mapだけ削除する</label></td></tr>
                     <tr><th scope="row">CSSキャッシュ更新補助</th><td><label><input type="checkbox" name="<?php echo esc_attr(self::SETTINGS_OPTION); ?>[cache_busting]" value="1" <?php checked($settings['cache_busting']); ?> /> 管理対象CSSのverに内容ハッシュを使用する</label></td></tr>
+                    <tr><th scope="row">外部トリガー専用モード</th><td><label><input type="checkbox" name="<?php echo esc_attr(self::SETTINGS_OPTION); ?>[external_trigger_only]" value="1" <?php checked($settings['external_trigger_only']); ?> /> 通常のサイトアクセス時の自動コンパイルを停止する</label><p class="description">サーバーCronなどの外部実行を設定した後に有効化してください。有効中はサイト表示・管理画面アクセスではコンパイルしません。</p></td></tr>
                     <tr><th scope="row">失敗の再試行間隔</th><td><input type="number" min="30" max="86400" name="<?php echo esc_attr(self::SETTINGS_OPTION); ?>[retry_interval]" value="<?php echo esc_attr($settings['retry_interval']); ?>" /> 秒</td></tr>
                 </table>
                 <?php submit_button('設定を保存'); ?>

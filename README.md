@@ -27,6 +27,7 @@ WordPressテーマ内のSCSSエントリーポイントを、同梱のscssphpで
 | sourcesContent | 無効 | 有効時だけ元SCSS内容をmapに埋め込む |
 | デバッグ解除時の.map削除 | 有効 | このプラグインの所有が確認できるmapだけ削除 |
 | CSSキャッシュ更新補助 | 無効 | 管理対象CSSの `ver` に保存済み内容ハッシュを使用 |
+| 外部トリガー専用モード | 無効 | 有効時はサイトアクセス時の自動コンパイルを停止。Cron設定後に有効化 |
 | 失敗の再試行間隔 | 300秒 | 自動再試行抑制の時間 |
 
 ### 設定例
@@ -45,6 +46,16 @@ pages/about.scss
 管理画面の「すべて再コンパイル」または一覧でファイルを選択する「選択したファイルを再コンパイル」を使用します。どちらも `manage_options` 権限、POST、nonce、サーバー側の再検証、共通ロックを使います。再読み込みによる二重送信を避けるため、実行後は設定画面へリダイレクトします。
 
 一覧では、入力・出力パス、状態、最終成功日時、処理時間、CSS内容ハッシュ、モード、依存数、直近エラー、再試行時刻を確認できます。失敗時は「既存CSSを維持」または「公開可能なCSSがまだありません」と区別して扱います。
+
+## FTP/SFTP更新後の定期コンパイル
+
+FTP/SFTPのアップロード完了をWordPressが直接受け取る仕組みはないため、サーバーCronで同梱のPython監視スクリプトを1分ごとに実行できます。監視スクリプトはSCSSの内容ハッシュだけを調べ、変更が安定した時だけWP-CLIを起動します。WP-CLIは通常の検査キャッシュを迂回して再検査し、変更されたエントリーポイントと依存CSSだけをコンパイルします。
+
+```cron
+* * * * * /usr/bin/python3 /absolute/path/to/wordpress/wp-content/plugins/ship-scss-compiler/bin/compile_if_changed.py --wp-path=/absolute/path/to/wordpress --scss-dir=/absolute/path/to/wordpress/wp-content/themes/your-theme/scss --php=/usr/bin/php8.3 --wp-cli=/usr/bin/wp >/dev/null 2>&1
+```
+
+このスクリプトを1分ごとのCronに登録すると、通常時はWordPressを起動せず、SCSS更新時だけコンパイルします。反映時間はCronの間隔に最大約1分、アップロード完了を確認する待ち時間に既定1.5秒が加わります。ハッシュとロックはCron実行ユーザー専用の権限700の一時ディレクトリに保存します。フロントエンドや管理画面のリクエスト中にコンパイルさせない場合は、Cron設定と動作確認の後に管理画面の「外部トリガー専用モード」を有効化します。FTP/SFTPのアップロードイベントそのものを受け取る方式ではありません。
 
 ## CSSキャッシュ更新補助
 
@@ -91,9 +102,23 @@ WordPress本体に依存しない回帰テストを同梱しています。
 php tests/test_core.php
 ```
 
+WP-CLIのコマンド登録も確認します。
+
+```bash
+php tests/test_wp_cli_registration.php
+python3 -B -m unittest discover -s tests -p 'test_*.py'
+```
+
 入力・出力パス、partial、空ファイル、差分判定、デバッグmap、失敗保護、再試行抑制、明示指定、ネスト出力、選択実行、ログ上限を検証します。
 
 ## 変更履歴
+
+### 1.3.4
+
+- FTP/SFTP更新を拾う外部Cron向けに、スキャン間隔を迂回する差分コンパイルWP-CLIコマンドを追加
+- 毎分のCronではSCSS内容ハッシュのみを確認し、変更時だけWP-CLIを起動する監視スクリプトを追加
+- WP-CLI実行時にフロントエンド自動コンパイルが重複して走らないよう変更
+- 外部Cron利用時にフロントエンド自動コンパイルを停止する設定を追加
 
 ### 1.3.3
 
