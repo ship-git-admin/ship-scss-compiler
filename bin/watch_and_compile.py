@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Watch SCSS upload completion for one Cron interval and compile changed files."""
+"""Watch completed SCSS uploads in bounded, overlapping Cron sessions."""
 
 import argparse
 import ctypes
@@ -83,48 +83,62 @@ def _event_flags(data):
     return changed, rebuild
 
 
-def watch_and_compile(wp_root, scss_root, php_binary, wp_cli, watch_seconds=55,
-                      stable_seconds=1.5):
+def _session_lock(state_dir, identity):
+    """At most two bounded watchers may overlap; compiler locking is separate."""
+    for slot in range(2):
+        path = os.path.join(state_dir, 'ship-scss-' + identity + '.watch-' + str(slot) + '.lock')
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        handle = os.fdopen(fd, 'w')
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError('Watcher lock is not a regular file')
+            os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except BlockingIOError:
+            handle.close()
+        except Exception:
+            handle.close()
+            raise
+    return None
+
+
+def watch_and_compile(wp_root, scss_root, php_binary, wp_cli, watch_seconds=70,
+                      stable_seconds=1.5, event_stable_seconds=0.25):
     wp_root = os.path.realpath(wp_root)
     scss_root = os.path.realpath(scss_root)
     if not os.path.isdir(scss_root) or not _inside(scss_root, wp_root):
         raise ValueError('SCSS directory must be inside the WordPress root')
     state_dir = _private_state_dir()
     identity = hashlib.sha256((wp_root + '\0' + scss_root).encode('utf-8')).hexdigest()[:32]
-    lock_path = os.path.join(state_dir, 'ship-scss-' + identity + '.watch.lock')
-    lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    lock_file = _session_lock(state_dir, identity)
+    if lock_file is None:
+        return 0
 
-    with os.fdopen(lock_fd, 'w') as lock_file:
-        if not stat.S_ISREG(os.fstat(lock_file.fileno()).st_mode):
-            raise ValueError('Watcher lock is not a regular file')
-        os.fchmod(lock_file.fileno(), 0o600)
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return 0
+    with lock_file:
+        deadline = time.monotonic() + watch_seconds
 
-        def compile_now():
-            return compile_if_changed(wp_root, scss_root, php_binary, wp_cli,
-                                      state_dir=state_dir, stable_seconds=stable_seconds)
-
-        # The first check covers changes during the gap between Cron runs.
-        result = compile_now()
-        if result:
-            return result
+        def compile_now(delay):
+            try:
+                return compile_if_changed(wp_root, scss_root, php_binary, wp_cli,
+                                          state_dir=state_dir, stable_seconds=delay)
+            except (OSError, ValueError) as error:
+                # A failed upload or compile must not stop notifications for
+                # its subsequent correction. Never retry in a tight loop.
+                print('Ship SCSS scan: ' + str(error), file=sys.stderr)
+                return 1
 
         try:
             watch_fd = _open_watches(scss_root)
         except (AttributeError, OSError, ValueError) as error:
-            # The first scan still ran; the next Cron invocation can retry.
+            # Content scanning still works when Linux notifications do not.
             print('Ship SCSS watcher unavailable: ' + str(error), file=sys.stderr)
-            return 0
+            return compile_now(stable_seconds)
 
         try:
-            # Cover an upload that completed between the first scan and watch setup.
-            result = compile_now()
-            if result:
-                return result
-            deadline = time.monotonic() + watch_seconds
+            # Install notifications BEFORE scanning so uploads during startup
+            # remain queued. Cron sessions overlap the minute boundary.
+            result = compile_now(stable_seconds)
             while time.monotonic() < deadline:
                 remaining = deadline - time.monotonic()
                 readable, _writable, _errors = select.select([watch_fd], [], [], max(0, remaining))
@@ -144,10 +158,8 @@ def watch_and_compile(wp_root, scss_root, php_binary, wp_cli, watch_seconds=55,
                     watch_fd = None
                     watch_fd = _open_watches(scss_root)
                 if changed:
-                    result = compile_now()
-                    if result:
-                        return result
-            return 0
+                    result = compile_now(event_stable_seconds)
+            return result
         finally:
             if watch_fd is not None:
                 os.close(watch_fd)
@@ -159,16 +171,20 @@ def main(argv=None):
     parser.add_argument('--scss-dir', required=True)
     parser.add_argument('--php', default='/usr/bin/php8.3')
     parser.add_argument('--wp-cli', default='/usr/bin/wp')
-    parser.add_argument('--watch-seconds', type=float, default=55)
+    parser.add_argument('--watch-seconds', type=float, default=70)
     parser.add_argument('--stable-seconds', type=float, default=1.5)
+    parser.add_argument('--event-stable-seconds', type=float, default=0.25)
     args = parser.parse_args(argv)
-    if not 0 < args.watch_seconds <= 58:
-        parser.error('--watch-seconds must be between 0 and 58')
+    if not 0 < args.watch_seconds <= 110:
+        parser.error('--watch-seconds must be between 0 and 110')
     if not 0 <= args.stable_seconds <= 10:
         parser.error('--stable-seconds must be between 0 and 10')
+    if not 0 <= args.event_stable_seconds <= 10:
+        parser.error('--event-stable-seconds must be between 0 and 10')
     try:
         return watch_and_compile(args.wp_path, args.scss_dir, args.php, args.wp_cli,
-                                 args.watch_seconds, args.stable_seconds)
+                                 args.watch_seconds, args.stable_seconds,
+                                 args.event_stable_seconds)
     except (OSError, ValueError) as error:
         print('Ship SCSS watcher: ' + str(error), file=sys.stderr)
         return 1

@@ -300,7 +300,9 @@ class Ship_SCSS_Compiler {
      * @return array
      */
     public function run($force = false, $selected = array(), $action = 'auto') {
-        if (self::$ran_this_request) {
+        // Explicit saves must see fresh input even after an earlier compile in
+        // this request. Automatic scans retain their once-per-request guard.
+        if (self::$ran_this_request && $action !== 'saved-source') {
             return array('locked' => false, 'duplicate' => true, 'counts' => array('success' => 0, 'failure' => 0, 'skipped' => 0), 'results' => array());
         }
         self::$ran_this_request = true;
@@ -344,10 +346,10 @@ class Ship_SCSS_Compiler {
         $report = array('locked' => false, 'action' => $action, 'counts' => array('success' => 0, 'failure' => 0, 'skipped' => 0), 'results' => array());
         foreach ($plans as $plan) {
             $source_rel = $plan['source_rel'];
-            if (!empty($plan['collision'])) {
-                $result = $this->failure_result($context_state, $plan, '出力先が重複しています。設定を確認してください。', array(), $ctx, $inventory);
-            } elseif ($action === 'manual-selected' && !isset($selected_map[$source_rel])) {
+            if (in_array($action, array('manual-selected', 'saved-source'), true) && !isset($selected_map[$source_rel])) {
                 $result = array('status' => 'skipped', 'source' => $source_rel, 'message' => '未選択');
+            } elseif (!empty($plan['collision'])) {
+                $result = $this->failure_result($context_state, $plan, '出力先が重複しています。設定を確認してください。', array(), $ctx, $inventory);
             } else {
                 $result = $this->process_plan($context_state, $plan, $ctx, $inventory, (bool) $force, $action);
             }

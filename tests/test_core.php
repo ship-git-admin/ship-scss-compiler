@@ -167,6 +167,20 @@ ship_test_reset_guard();
 $report = $compiler->run(true, array('scss/sub/page.scss'), 'manual-selected');
 ship_test_assert($report['results']['scss/sub/page.scss']['status'] === 'success', 'selected manual recompilation accepts only server-listed paths');
 
+ship_test_write($theme_dir . '/scss/sub/page.scss', '.page { color: blue; }');
+$report = $compiler->run(true, array('scss/sub/page.scss'), 'saved-source');
+ship_test_assert($report['results']['scss/sub/page.scss']['status'] === 'success' &&
+    strpos(file_get_contents($theme_dir . '/css/sub/page.css'), 'blue') !== false,
+    'explicit source save recompiles after an earlier run in the same request');
+ship_test_assert($report['results']['scss/home.scss']['status'] === 'skipped', 'source save only recompiles its selected entrypoint');
+ship_test_write($theme_dir . '/scss/sub/page.scss', '.page { color: green; }');
+$report = $compiler->run(true, array('scss/sub/page.scss'), 'saved-source');
+ship_test_assert($report['results']['scss/sub/page.scss']['status'] === 'success' &&
+    strpos(file_get_contents($theme_dir . '/css/sub/page.css'), 'green') !== false,
+    'second source save publishes fresh input without resetting the request guard');
+$report = $compiler->run(false, array(), 'auto');
+ship_test_assert(!empty($report['duplicate']), 'automatic scans remain limited to once per request');
+
 $lock_ref = new ReflectionClass('Ship_SCSS_Compiler');
 $ctx_method = $lock_ref->getMethod('build_context'); $ctx_method->setAccessible(true);
 $acquire_method = $lock_ref->getMethod('acquire_lock'); $acquire_method->setAccessible(true);

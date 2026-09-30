@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Ship SCSS Compiler
  * Description: Compiles the active theme's SCSS files safely with scssphp.
- * Version: 1.3.5
+ * Version: 1.3.6
  * Requires PHP: 7.2
  */
 
 defined('ABSPATH') || exit;
 
-define('SHIP_SCSS_COMPILER_VERSION', '1.3.5');
+define('SHIP_SCSS_COMPILER_VERSION', '1.3.6');
 define('SHIP_SCSS_COMPILER_FILE', __FILE__);
 define('SHIP_SCSS_COMPILER_DIR', plugin_dir_path(__FILE__));
 define('SHIP_SCSS_COMPILER_REPOSITORY', 'https://github.com/ship-git-admin/ship-scss-compiler');
@@ -26,7 +26,9 @@ require_once SHIP_SCSS_COMPILER_DIR . 'scssphp/scss.inc.php';
 require_once SHIP_SCSS_COMPILER_DIR . 'includes/class-ship-scss-compiler.php';
 
 /** @var Ship_SCSS_Compiler $ship_scss_compiler */
-$ship_scss_compiler = new Ship_SCSS_Compiler();
+// WP-CLI can include plugins inside a function scope. Helpers must still see
+// the same instance whose hooks and commands were registered.
+$GLOBALS['ship_scss_compiler'] = $ship_scss_compiler = new Ship_SCSS_Compiler();
 
 /** Backwards-compatible helper wrappers used by previous deployments. */
 function ship_scss_compiler_paths() {
@@ -137,17 +139,24 @@ function ship_scss_compiler_compile_one($source, $output, $scss_dir) {
     global $ship_scss_compiler;
     unset($output);
     $paths = $ship_scss_compiler->paths();
-    $source = str_replace('\\', '/', (string) $source);
-    $scss_dir = trailingslashit(str_replace('\\', '/', (string) $scss_dir));
-    $input_dir = trailingslashit(str_replace('\\', '/', $paths['scss']));
+    // Compare filesystem identities, not spelling (e.g. /public_html/./...).
+    // Resolving symlinks first also rejects sources escaping the input root.
+    $source = realpath((string) $source);
+    $scss_dir = realpath((string) $scss_dir);
+    $input_dir = realpath($paths['scss']);
+    if ($source === false || $scss_dir === false || $input_dir === false || !is_file($source)) {
+        return false;
+    }
+    $source = str_replace('\\', '/', $source);
+    $scss_dir = trailingslashit(str_replace('\\', '/', $scss_dir));
+    $input_dir = trailingslashit(str_replace('\\', '/', $input_dir));
     if (strpos($source, $scss_dir) !== 0 || strpos($scss_dir, $input_dir) !== 0) {
         return false;
     }
     $relative = ltrim(substr($source, strlen($input_dir)), '/');
-    $settings = get_option(Ship_SCSS_Compiler::SETTINGS_OPTION, Ship_SCSS_Compiler::defaults());
-    $relative = isset($settings['input_dir']) ? trim($settings['input_dir'], '/') . '/' . $relative : 'scss/' . $relative;
+    $relative = trim($paths['input_rel'], '/') . '/' . $relative;
     clearstatcache(true, $source);
-    $report = ship_scss_compiler_run(true, array($relative), 'manual-selected');
+    $report = ship_scss_compiler_run(true, array($relative), 'saved-source');
     return isset($report['results'][$relative]) && $report['results'][$relative]['status'] === 'success';
 }
 

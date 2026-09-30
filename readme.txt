@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.3.5
+Version: 1.3.6
 
 Safely compiles SCSS entrypoints in the active theme with the bundled scssphp library.
 
@@ -44,8 +44,12 @@ validation, a shared lock, and a redirect after processing. A lock conflict is n
 == FTP/SFTP upload watcher ==
 
 On Linux, run `bin/watch_and_compile.py` from a once-per-minute server cron. It watches
-SCSS directories for a completed write or rename for up to 55 seconds, then exits. An
-initial content scan covers gaps between cron runs. If inotify is unavailable, the
+SCSS directories for a completed write or rename for up to 70 seconds, then exits.
+At most two sessions overlap, covering normal minute-boundary handovers; the separate
+compiler lock prevents duplicate compilation. Notifications are installed before the
+initial scan. Upload events use a 0.25-second stability check; startup/polling checks
+retain 1.5 seconds. Compilation failures do not stop watching for corrections.
+If inotify is unavailable, the
 initial scan still runs and the next cron invocation retries. WordPress starts only
 after a stable SCSS content change; WP-CLI bypasses the normal scan cache and recompiles
 changed entrypoints and dependents. `bin/compile_if_changed.py` remains available for
@@ -89,6 +93,11 @@ The existing release-only update checker remains in place. It accepts only the a
     ship-scss-compiler-x.y.z.zip
 
 == Changelog ==
+
+= 1.3.6 =
+* Shortened completed-upload stability checks to 0.25 seconds.
+* Overlap bounded watcher sessions without exceeding two processes; retain watching after compile errors.
+* Fixed helper initialization under WP-CLI, equivalent filesystem paths, and repeated explicit saves.
 
 = 1.3.5 =
 * Watch completed SCSS uploads with bounded Linux inotify sessions from Cron.
