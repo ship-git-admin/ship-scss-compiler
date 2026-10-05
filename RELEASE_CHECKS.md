@@ -1,6 +1,6 @@
 # Release verification
 
-## 1.3.7 — 2026-10-05 (demo deployment verified)
+## 1.3.7 — 2026-10-05 (public release and demo deployment verified)
 
 - Reproduced a missed compilation on the deployed 1.3.6 trigger: hold its hash-scan lock during a real SFTP overwrite, then release the lock. The watcher acknowledged/skipped the event with status 0; source contained the new color while CSS retained the old color for the rest of the session.
 - Candidate adds two-second reconciliation independent of inotify delivery and temporary lock skips. Unchanged inventories still do not boot WordPress.
@@ -36,6 +36,16 @@
 | `bin/compile_if_changed.py` | `fef480d8349b539b25d606b84cb51568f7092f1ead46e3e8122293f50ef048c4` |
 | `README.md` | `357cb76d9e093801349fbefef2e3c059cb814d61b88275fa25ff5095a8bf5774` |
 | `readme.txt` | `40da171502a5127bf64cc117505318a0de3fc51e3da0dd86ed797984d1e77c2a` |
+
+### Public release checks
+
+- User explicitly requested the release after reporting smoother near-real-time compilation on the demo.
+- Published `v1.3.7` from commit `2421ac5848db2922474e9c093112d5a1a3c7a3eb` using the company account. Release is public, non-draft and non-prerelease; unauthenticated GitHub latest-release API returns `v1.3.7`.
+- Build workflow run `37300581694` completed successfully. Asset: `ship-scss-compiler-1.3.7.zip`, 582,619 bytes.
+- Downloaded ZIP SHA-256: `4aae4e71895419c9bd4a573550b739b6c68cbc69d4e02a645faf11e3970533b1`; matches GitHub's asset digest. ZIP integrity passed; unpacked files exactly match the tagged Git archive, with no sync-conflict files.
+- PHP core and CLI-registration tests, 16 Python tests and runtime PHP syntax checks passed again on the remote Linux/PHP 8.3 verification host before publication.
+- Demo plugin remains active at 1.3.7; the four deployed runtime hashes match the release. Settings and Linux crontab checksums remain unchanged. No theme, Snippets or other plugin changes were made for this release.
+- Private remote release-test files were removed. Release verification records were committed separately after publication; the released tag/asset were not changed.
 
 ## 1.3.6 — 2026-09-30
 
