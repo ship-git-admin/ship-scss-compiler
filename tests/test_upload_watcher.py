@@ -114,6 +114,39 @@ class UploadWatcherTests(unittest.TestCase):
                 first.close()
                 second.close()
 
+    def test_silent_notifications_and_failed_scan_are_reconciled(self):
+        with tempfile.TemporaryDirectory() as root:
+            scss_root = os.path.join(root, 'scss')
+            state_dir = os.path.join(root, 'state')
+            os.makedirs(scss_root)
+            os.makedirs(state_dir)
+            read_fd, write_fd = os.pipe()
+            try:
+                with mock.patch.object(watch_and_compile, '_private_state_dir', return_value=state_dir), \
+                        mock.patch.object(watch_and_compile, '_open_watches', return_value=read_fd), \
+                        mock.patch.object(watch_and_compile, 'compile_if_changed',
+                                          side_effect=[0, 1, 0, 0]) as scan:
+                    self.assertEqual(watch_and_compile.watch_and_compile(
+                        root, scss_root, '/usr/bin/php', '/usr/bin/wp',
+                        watch_seconds=0.075, reconcile_seconds=0.02, stable_seconds=0), 0)
+                    self.assertGreaterEqual(scan.call_count, 3)
+            finally:
+                os.close(write_fd)
+
+    def test_unavailable_notifications_continue_periodic_scans(self):
+        with tempfile.TemporaryDirectory() as root:
+            scss_root = os.path.join(root, 'scss')
+            state_dir = os.path.join(root, 'state')
+            os.makedirs(scss_root)
+            os.makedirs(state_dir)
+            with mock.patch.object(watch_and_compile, '_private_state_dir', return_value=state_dir), \
+                    mock.patch.object(watch_and_compile, '_open_watches', side_effect=OSError('unavailable')), \
+                    mock.patch.object(watch_and_compile, 'compile_if_changed', return_value=0) as scan:
+                watch_and_compile.watch_and_compile(
+                    root, scss_root, '/usr/bin/php', '/usr/bin/wp',
+                    watch_seconds=0.065, reconcile_seconds=0.02, stable_seconds=0)
+                self.assertGreaterEqual(scan.call_count, 3)
+
     def test_notifications_are_installed_before_initial_scan(self):
         with tempfile.TemporaryDirectory() as root:
             scss_root = os.path.join(root, 'scss')

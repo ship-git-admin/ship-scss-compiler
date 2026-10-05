@@ -48,6 +48,7 @@ class ExternalTriggerTests(unittest.TestCase):
         return compile_if_changed.compile_if_changed(
             self.wp_root, self.scss_root, self.php_binary, self.wp_cli,
             state_dir=self.state_dir, stable_seconds=0, run=fake_run, wait=wait,
+            retry_seconds=0,
         )
 
     def test_first_scan_runs_once_then_skips_unchanged_inventory(self):
@@ -73,6 +74,36 @@ class ExternalTriggerTests(unittest.TestCase):
     def test_failed_cli_does_not_advance_fingerprint(self):
         self.assertEqual(self._run(returncode=1), 1)
         self.assertEqual(self._run(), 0)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_same_failure_is_throttled_but_new_upload_retries_immediately(self):
+        now = [100]
+        def fake_run(command, cwd, check):
+            self.calls.append(command)
+            return subprocess.CompletedProcess(command, 1)
+        def scan():
+            return compile_if_changed.compile_if_changed(
+                self.wp_root, self.scss_root, self.php_binary, self.wp_cli,
+                state_dir=self.state_dir, stable_seconds=0, run=fake_run,
+                clock=lambda: now[0])
+        self.assertEqual(scan(), 1)
+        self.assertEqual(scan(), 0)
+        self.assertEqual(len(self.calls), 1)
+        self._write(self.entrypoint, '.main { color: blue; }')
+        self.assertEqual(scan(), 1)
+        self.assertEqual(len(self.calls), 2)
+        now[0] += 61
+        self.assertEqual(scan(), 1)
+        self.assertEqual(len(self.calls), 3)
+
+    def test_compiler_lock_conflict_retries_without_error_cooldown(self):
+        def fake_run(command, cwd, check):
+            self.calls.append(command)
+            return subprocess.CompletedProcess(command, 75)
+        for _ in range(2):
+            self.assertEqual(compile_if_changed.compile_if_changed(
+                self.wp_root, self.scss_root, self.php_binary, self.wp_cli,
+                state_dir=self.state_dir, stable_seconds=0, run=fake_run), 75)
         self.assertEqual(len(self.calls), 2)
 
     def test_unstable_upload_is_deferred_without_running_cli(self):

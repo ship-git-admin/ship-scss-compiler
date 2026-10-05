@@ -17,7 +17,8 @@ class WP_CLI {
     public static function add_command($name, $callback) { self::$commands[$name] = $callback; }
     public static function log($message) { self::$messages[] = (string) $message; }
     public static function warning($message) { self::$messages[] = (string) $message; }
-    public static function error($message) { throw new RuntimeException((string) $message); }
+    public static function error($message, $exit = true) { if ($exit) { throw new RuntimeException((string) $message); } self::$messages[] = (string) $message; }
+    public static function halt($code) { throw new RuntimeException('exit_' . $code); }
 }
 
 function add_action($a, $b, $c = 10, $d = 1) {}
@@ -190,6 +191,17 @@ ship_test_reset_guard();
 $report = $compiler->run(true, array(), 'manual-all');
 ship_test_assert(!empty($report['locked']), 'concurrent lock is reported as not successful');
 $release_method->invoke($compiler, $held_lock);
+
+$held_lock = $acquire_method->invoke($compiler, $ctx_method->invoke($compiler)['key']);
+ship_test_reset_guard();
+try {
+    $compiler->cli_compile_changed(array(), array());
+    ship_test_assert(false, 'external lock conflict exits with temporary-failure status');
+} catch (RuntimeException $error) {
+    ship_test_assert($error->getMessage() === 'exit_75', 'external lock conflict exits with temporary-failure status');
+} finally {
+    $release_method->invoke($compiler, $held_lock);
+}
 
 $logs_before_auto_lock = get_option(Ship_SCSS_Compiler::LOG_OPTION, array());
 delete_option(Ship_SCSS_Compiler::LOG_OPTION);

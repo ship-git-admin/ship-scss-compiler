@@ -5,6 +5,7 @@ import argparse
 import errno
 import fcntl
 import hashlib
+import json
 import os
 import stat
 import subprocess
@@ -79,7 +80,8 @@ def _private_state_dir(base_dir=None):
 
 
 def compile_if_changed(wp_root, scss_root, php_binary, wp_cli, state_dir=None,
-                       stable_seconds=1.5, run=subprocess.run, wait=time.sleep):
+                       stable_seconds=1.5, run=subprocess.run, wait=time.sleep,
+                       retry_seconds=60, clock=time.time):
     wp_root = os.path.realpath(wp_root)
     scss_root = os.path.realpath(scss_root)
     php_binary = os.path.realpath(php_binary)
@@ -98,6 +100,7 @@ def compile_if_changed(wp_root, scss_root, php_binary, wp_cli, state_dir=None,
     identity = hashlib.sha256((wp_root + '\0' + scss_root).encode('utf-8')).hexdigest()[:32]
     state_path = os.path.join(state_dir, 'ship-scss-' + identity + '.state')
     lock_path = state_path + '.lock'
+    retry_path = state_path + '.retry'
 
     with open(lock_path, 'a') as lock_file:
         os.chmod(lock_path, 0o600)
@@ -116,6 +119,16 @@ def compile_if_changed(wp_root, scss_root, php_binary, wp_cli, state_dir=None,
         if current == previous:
             return 0
 
+        # Periodic reconciliation must not boot WordPress every two seconds
+        # for the same syntax error. A changed upload bypasses this cooldown.
+        try:
+            with open(retry_path, 'r', encoding='ascii') as retry_file:
+                retry = json.load(retry_file)
+            if retry.get('fingerprint') == current and float(retry.get('after', 0)) > clock():
+                return 0
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
         if stable_seconds > 0:
             wait(stable_seconds)
             if scss_fingerprint(scss_root) != current:
@@ -127,9 +140,18 @@ def compile_if_changed(wp_root, scss_root, php_binary, wp_cli, state_dir=None,
             check=False,
         )
         if result.returncode != 0:
+            # EX_TEMPFAIL is a compiler lock conflict: retry on the next scan,
+            # not after the syntax-error cooldown. Never acknowledge the hash.
+            if result.returncode != 75:
+                _atomic_write(retry_path, json.dumps({'fingerprint': current,
+                                                     'after': clock() + retry_seconds}))
             return result.returncode
 
         _atomic_write(state_path, current)
+        try:
+            os.unlink(retry_path)
+        except FileNotFoundError:
+            pass
         return 0
 
 

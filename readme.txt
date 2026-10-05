@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.3.6
+Version: 1.3.7
 
 Safely compiles SCSS entrypoints in the active theme with the bundled scssphp library.
 
@@ -50,7 +50,12 @@ compiler lock prevents duplicate compilation. Notifications are installed before
 initial scan. Upload events use a 0.25-second stability check; startup/polling checks
 retain 1.5 seconds. Compilation failures do not stop watching for corrections.
 If inotify is unavailable, the
-initial scan still runs and the next cron invocation retries. WordPress starts only
+watcher still reconciles content every two seconds. This also recovers missed
+notifications, temporary lock conflicts and deferred uploads without waiting for
+the next cron run. Unchanged scans do not start WordPress. Identical failed content
+has a 60-second trigger cooldown; changed content retries immediately. Compiler
+lock conflicts use temporary-failure exit code 75 and are not cooled down.
+WordPress starts only
 after a stable SCSS content change; WP-CLI bypasses the normal scan cache and recompiles
 changed entrypoints and dependents. `bin/compile_if_changed.py` remains available for
 polling-only operation and rollback. State and lock files are kept in a mode-700 temporary
@@ -93,6 +98,11 @@ The existing release-only update checker remains in place. It accepts only the a
     ship-scss-compiler-x.y.z.zip
 
 == Changelog ==
+
+= 1.3.7 =
+* Recover skipped or missing upload notifications with two-second content reconciliation.
+* Continue reconciliation when inotify is unavailable or a watch cannot be rebuilt.
+* Throttle identical failures without acknowledging failed input; retry lock conflicts promptly.
 
 = 1.3.6 =
 * Shortened completed-upload stability checks to 0.25 seconds.

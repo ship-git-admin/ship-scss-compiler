@@ -263,7 +263,8 @@ class Ship_SCSS_Compiler {
         $report = $this->run(false, array(), 'external');
 
         if (!empty($report['locked'])) {
-            \WP_CLI::error('別のコンパイルが実行中のためスキップしました。次回の定期実行で再確認します。');
+            \WP_CLI::error('別のコンパイルが実行中のためスキップしました。次回の定期実行で再確認します。', false);
+            \WP_CLI::halt(75);
         }
 
         $counts = isset($report['counts']) && is_array($report['counts'])

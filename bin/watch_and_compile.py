@@ -104,7 +104,8 @@ def _session_lock(state_dir, identity):
 
 
 def watch_and_compile(wp_root, scss_root, php_binary, wp_cli, watch_seconds=70,
-                      stable_seconds=1.5, event_stable_seconds=0.25):
+                      stable_seconds=1.5, event_stable_seconds=0.25,
+                      reconcile_seconds=2):
     wp_root = os.path.realpath(wp_root)
     scss_root = os.path.realpath(scss_root)
     if not os.path.isdir(scss_root) or not _inside(scss_root, wp_root):
@@ -133,17 +134,27 @@ def watch_and_compile(wp_root, scss_root, php_binary, wp_cli, watch_seconds=70,
         except (AttributeError, OSError, ValueError) as error:
             # Content scanning still works when Linux notifications do not.
             print('Ship SCSS watcher unavailable: ' + str(error), file=sys.stderr)
-            return compile_now(stable_seconds)
+            watch_fd = None
 
         try:
             # Install notifications BEFORE scanning so uploads during startup
             # remain queued. Cron sessions overlap the minute boundary.
             result = compile_now(stable_seconds)
+            next_scan = time.monotonic() + reconcile_seconds
             while time.monotonic() < deadline:
                 remaining = deadline - time.monotonic()
-                readable, _writable, _errors = select.select([watch_fd], [], [], max(0, remaining))
+                until_scan = max(0, next_scan - time.monotonic())
+                readable, _writable, _errors = select.select(
+                    [watch_fd] if watch_fd is not None else [], [], [],
+                    max(0, min(remaining, until_scan)))
                 if not readable:
-                    break
+                    if remaining <= until_scan:
+                        break
+                    # Notification loss, a busy lock, deferred upload, or a
+                    # missing inotify facility must not leave updates stranded.
+                    result = compile_now(stable_seconds)
+                    next_scan = time.monotonic() + reconcile_seconds
+                    continue
                 try:
                     data = os.read(watch_fd, 65536)
                 except OSError as error:
@@ -156,9 +167,17 @@ def watch_and_compile(wp_root, scss_root, php_binary, wp_cli, watch_seconds=70,
                 if rebuild:
                     os.close(watch_fd)
                     watch_fd = None
-                    watch_fd = _open_watches(scss_root)
+                    try:
+                        watch_fd = _open_watches(scss_root)
+                    except (AttributeError, OSError, ValueError) as error:
+                        print('Ship SCSS watcher unavailable: ' + str(error), file=sys.stderr)
                 if changed:
                     result = compile_now(event_stable_seconds)
+                    next_scan = time.monotonic() + reconcile_seconds
+                elif time.monotonic() >= next_scan:
+                    # Unrelated notifications must not starve reconciliation.
+                    result = compile_now(stable_seconds)
+                    next_scan = time.monotonic() + reconcile_seconds
             return result
         finally:
             if watch_fd is not None:
@@ -174,6 +193,7 @@ def main(argv=None):
     parser.add_argument('--watch-seconds', type=float, default=70)
     parser.add_argument('--stable-seconds', type=float, default=1.5)
     parser.add_argument('--event-stable-seconds', type=float, default=0.25)
+    parser.add_argument('--reconcile-seconds', type=float, default=2)
     args = parser.parse_args(argv)
     if not 0 < args.watch_seconds <= 110:
         parser.error('--watch-seconds must be between 0 and 110')
@@ -181,10 +201,12 @@ def main(argv=None):
         parser.error('--stable-seconds must be between 0 and 10')
     if not 0 <= args.event_stable_seconds <= 10:
         parser.error('--event-stable-seconds must be between 0 and 10')
+    if not 1 <= args.reconcile_seconds <= 60:
+        parser.error('--reconcile-seconds must be between 1 and 60')
     try:
         return watch_and_compile(args.wp_path, args.scss_dir, args.php, args.wp_cli,
                                  args.watch_seconds, args.stable_seconds,
-                                 args.event_stable_seconds)
+                                 args.event_stable_seconds, args.reconcile_seconds)
     except (OSError, ValueError) as error:
         print('Ship SCSS watcher: ' + str(error), file=sys.stderr)
         return 1
