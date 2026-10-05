@@ -12,6 +12,7 @@ parser.add_argument('--probe-root', required=True)
 parser.add_argument('--wp-path', required=True)
 parser.add_argument('--mode', choices=['normal', 'lock', 'silent'], default='normal')
 parser.add_argument('--seconds', type=float, default=10)
+parser.add_argument('--installed-plugin', action='store_true')
 args = parser.parse_args()
 sys.path.insert(0, os.path.join(args.plugin_dir, 'bin'))
 import watch_and_compile as watcher
@@ -28,9 +29,11 @@ calls = 0
 def run_cli(command, cwd, check):
     env = dict(os.environ, SHIP_SCSS_PROBE_ROOT=root,
                SHIP_SCSS_CANDIDATE_DIR=args.plugin_dir)
-    result = subprocess.run(['/usr/bin/php8.3', '-d', 'error_reporting=0', '/usr/bin/wp',
-                             '--path=' + args.wp_path, '--skip-plugins=ship-scss-compiler', 'eval-file',
-                             os.path.join(os.path.dirname(__file__), 'compile_probe.php')],
+    command = ['/usr/bin/php8.3', '-d', 'error_reporting=0', '/usr/bin/wp', '--path=' + args.wp_path]
+    if not args.installed_plugin:
+        command.append('--skip-plugins=ship-scss-compiler')
+    command.extend(['eval-file', os.path.join(os.path.dirname(__file__), 'compile_probe.php')])
+    result = subprocess.run(command,
                             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     print('WP_CLI_EXIT=' + str(result.returncode), flush=True)
     css = os.path.join(root, 'css', 'probe.css')
