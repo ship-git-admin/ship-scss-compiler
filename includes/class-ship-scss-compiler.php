@@ -329,12 +329,26 @@ class Ship_SCSS_Compiler {
             return array('locked' => true, 'counts' => array('success' => 0, 'failure' => 0, 'skipped' => 0), 'results' => array());
         }
 
+        try {
+            return $this->run_locked($ctx, $force, $selected, $action);
+        } finally {
+            $this->release_lock($lock);
+        }
+    }
+
+    private function run_locked($ctx, $force, $selected, $action) {
         $state = $this->load_state();
         if (!isset($state['contexts'][$ctx['key']])) {
             $state['contexts'][$ctx['key']] = $this->new_context_state($ctx);
         }
         $context_state = $state['contexts'][$ctx['key']];
-        $inventory = $this->scan_inventory($ctx, (bool) $force || $action === 'external');
+        $scan = $this->scan_inventory($ctx, (bool) $force || $action === 'external');
+        if ($scan['status'] === 'failed') {
+            // A stale/partial inventory must not drive compilation or replace
+            // the last successful state, even during a forced run.
+            return $this->report_error($scan['error']);
+        }
+        $inventory = $scan['inventory'];
         $plans = $this->entry_plans($ctx, $inventory);
         $selected_map = array();
         foreach ((array) $selected as $path) {
@@ -365,7 +379,7 @@ class Ship_SCSS_Compiler {
             }
         }
 
-        if ($force || $context_state['inventory'] !== $inventory || empty($context_state['last_scan'])) {
+        if ($scan['status'] === 'scanned') {
             $context_state['last_scan'] = $this->now();
         }
         $context_state['inventory'] = $inventory;
@@ -377,7 +391,6 @@ class Ship_SCSS_Compiler {
         if ($report['counts']['success'] > 0) {
             update_option('ship_scss_compiler_last_profile', $this->profile(), false);
         }
-        $this->release_lock($lock);
         return $report;
     }
 
@@ -643,37 +656,43 @@ class Ship_SCSS_Compiler {
 
     private function scan_inventory($ctx, $force) {
         $state = $this->load_state();
-        $old = isset($state['contexts'][$ctx['key']]['inventory']) && is_array($state['contexts'][$ctx['key']]['inventory']) ? $state['contexts'][$ctx['key']]['inventory'] : array();
+        $has_inventory = isset($state['contexts'][$ctx['key']]['inventory']) && is_array($state['contexts'][$ctx['key']]['inventory']);
+        $old = $has_inventory ? $state['contexts'][$ctx['key']]['inventory'] : array();
         $last = isset($state['contexts'][$ctx['key']]['last_scan']) ? (int) $state['contexts'][$ctx['key']]['last_scan'] : 0;
         $interval = (int) apply_filters('ship_scss_compiler_scan_interval', 30);
-        if (!$force && $interval > 0 && $old && $last > $this->now() - $interval) {
-            return $old;
+        if (!$force && $interval > 0 && $has_inventory && $last > 0 && $last > $this->now() - $interval) {
+            return array('status' => 'cached', 'inventory' => $old, 'error' => '');
         }
         $found = array();
         try {
-            if (is_dir($ctx['input_root'])) {
-                // Inventory is recursive even when automatic entrypoint discovery
-                // is direct-only. Imported partials can live below the input root;
-                // the discovery filter decides which files become standalone CSS.
-                $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($ctx['input_root'], FilesystemIterator::SKIP_DOTS));
-                foreach ($iterator as $file) {
-                    if (!$file instanceof SplFileInfo || !$file->isFile() || strtolower($file->getExtension()) !== 'scss') { continue; }
-                    $path = $file->getPathname();
-                    $real = realpath($path);
-                    if ($real === false || !$this->within($real, $ctx['input_real'])) { continue; }
-                    $rel = $this->relative_to_input($real, $ctx);
-                    if ($rel === false) { continue; }
-                    $mtime = (int) $file->getMTime(); $size = (int) $file->getSize();
-                    // Once a real scan is due, hash the content even when
-                    // mtime/size are unchanged. This avoids missing an edit
-                    // made within a coarse timestamp resolution window.
-                    $hash = $this->hash_file($real);
-                    $found[$rel] = array('hash' => $hash, 'mtime' => $mtime, 'size' => $size, 'exists' => true);
+            if (!is_dir($ctx['input_root']) || !is_readable($ctx['input_root'])) {
+                throw new RuntimeException('SCSS入力ディレクトリが存在しないか、読み取れません。');
+            }
+            // Inventory is recursive even when automatic entrypoint discovery
+            // is direct-only. Imported partials can live below the input root;
+            // the discovery filter decides which files become standalone CSS.
+            $iterator = $this->inventory_files($ctx['input_root']);
+            foreach ($iterator as $file) {
+                if (!$file instanceof SplFileInfo || !$file->isFile() || strtolower($file->getExtension()) !== 'scss') { continue; }
+                $path = $file->getPathname();
+                $real = realpath($path);
+                if ($real === false || !$this->within($real, $ctx['input_real'])) { continue; }
+                $rel = $this->relative_to_input($real, $ctx);
+                if ($rel === false) { continue; }
+                $mtime = (int) $file->getMTime(); $size = (int) $file->getSize();
+                // Once a real scan is due, hash the content even when
+                // mtime/size are unchanged. This avoids missing an edit
+                // made within a coarse timestamp resolution window.
+                $hash = $this->hash_file($real);
+                if ($hash === 'missing') {
+                    throw new RuntimeException('入力SCSSの内容ハッシュを取得できません。');
                 }
+                $found[$rel] = array('hash' => $hash, 'mtime' => $mtime, 'size' => $size, 'exists' => true);
             }
         } catch (Throwable $error) {
-            $this->log_event('SCSS入力ディレクトリの検査に失敗しました: ' . $error->getMessage(), $ctx, '', 'scan-' . $ctx['key']);
-            return $old;
+            $message = 'SCSS入力ディレクトリの検査に失敗しました: ' . $error->getMessage();
+            $this->log_event($message, $ctx, '', 'scan-' . $ctx['key']);
+            return array('status' => 'failed', 'inventory' => $old, 'error' => $message);
         }
         if ($ctx['settings']['entry_mode'] === 'explicit') {
             foreach ($this->explicit_entries($ctx['settings']) as $rel) {
@@ -684,7 +703,11 @@ class Ship_SCSS_Compiler {
             }
         }
         ksort($found);
-        return $found;
+        return array('status' => 'scanned', 'inventory' => $found, 'error' => '');
+    }
+
+    protected function inventory_files($input_root) {
+        return new RecursiveIteratorIterator(new RecursiveDirectoryIterator($input_root, FilesystemIterator::SKIP_DOTS));
     }
 
     private function entry_plans($ctx, $inventory) {
@@ -866,7 +889,7 @@ class Ship_SCSS_Compiler {
         return substr($this->sanitize_message($message, array('root' => '', 'input_root' => '')), 0, 4096);
     }
 
-    private function hash_file($file) { $hash = is_file($file) ? @hash_file('sha256', $file) : false; return is_string($hash) ? $hash : 'missing'; }
+    protected function hash_file($file) { $hash = is_file($file) ? @hash_file('sha256', $file) : false; return is_string($hash) ? $hash : 'missing'; }
     private function source_nonempty($file) { return is_file($file) && (int) @filesize($file) > 0; }
     private function now() { return function_exists('current_time') ? (int) current_time('timestamp') : time(); }
     private function admin_notice($message, $type) { set_transient('ship_scss_compiler_admin_notice_' . get_current_user_id(), array('message' => $message, 'type' => $type), 60); }
@@ -896,7 +919,7 @@ class Ship_SCSS_Compiler {
 
     public function render_settings_page() {
         if (!current_user_can('manage_options')) { return; }
-        $settings = $this->settings(); $ctx = $this->build_context(); $state = $this->load_state(); $context = isset($state['contexts'][$ctx['key']]) ? $state['contexts'][$ctx['key']] : $this->new_context_state($ctx); $plans = !empty($ctx['error']) ? array() : $this->entry_plans($ctx, $this->scan_inventory($ctx, false));
+        $settings = $this->settings(); $ctx = $this->build_context(); $state = $this->load_state(); $context = isset($state['contexts'][$ctx['key']]) ? $state['contexts'][$ctx['key']] : $this->new_context_state($ctx); $plans = !empty($ctx['error']) ? array() : $this->entry_plans($ctx, $this->scan_inventory($ctx, false)['inventory']);
         $notice_key = self::NOTICE_PREFIX . get_current_user_id(); $notice = get_transient($notice_key); if ($notice) { delete_transient($notice_key); }
         if ($notice) { echo '<div class="notice notice-' . esc_attr($notice['type']) . '"><p>' . esc_html($notice['message']) . '</p></div>'; }
         $manual_report = get_transient(self::RESULT_PREFIX . get_current_user_id());

@@ -33,7 +33,7 @@ function get_stylesheet_directory_uri() { return 'https://example.test/wp-conten
 function trailingslashit($v) { return rtrim($v, '/') . '/'; }
 function wp_json_encode($v) { return json_encode($v); }
 function wp_strip_all_tags($v) { return strip_tags($v); }
-function current_time($what) { return time(); }
+function current_time($what) { return isset($GLOBALS['ship_test_now']) ? $GLOBALS['ship_test_now'] : time(); }
 function absint($v) { return abs((int) $v); }
 function set_transient() {}
 function get_transient() { return false; }
@@ -228,4 +228,6 @@ try {
     ship_test_assert(strpos($error->getMessage(), '失敗') !== false, 'external CLI failure exits unsuccessfully so the file watcher retries');
 }
 
+require __DIR__ . '/test_scan_cache.php';
+ship_test_scan_cache();
 echo "All Ship SCSS Compiler core tests passed.\n";
