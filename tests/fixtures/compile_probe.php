@@ -27,6 +27,7 @@ foreach (array(Ship_SCSS_Compiler::LOG_OPTION, 'ship_scss_compiler_last_profile'
     add_filter('pre_option_' . $option, static function () { return array(); });
     add_filter('pre_update_option_' . $option, static function ($value, $old) { return $old; }, 10, 2);
 }
+if (getenv('SHIP_SCSS_PROBE_SETUP_ONLY')) { return; }
 $compiler = new Ship_SCSS_Compiler();
 if (getenv('SHIP_SCSS_PROBE_LOCK')) {
     $ref = new ReflectionClass($compiler);

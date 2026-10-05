@@ -22,6 +22,7 @@
 - Installed-code integration tests booted this target site's normal WordPress/plugin stack. SCSS/CSS/state remained isolated via the fixture, rather than changing the public theme or production settings.
 - Real SFTP lock-skip recovery: 4.073 s. Notifications deliberately ignored: 2.426 s. Syntax failure retained old CSS without repeated CLI starts; corrected temp-file/rename upload compiled in 0.868 s. Successful output contained the final uploaded color; CLI exited 0.
 - Actual installed PHP compiler-lock check exited 75. No test context appeared in the production compiler-state option.
+- The native installed `wp ship-scss compile-changed` command was also exercised, with `after_wp_load` fixture filters isolating its input/output/state. A real SFTP overwrite while the scan lock was held recovered in 4.094 s, produced the uploaded color and exited 0; the watcher exited 0.
 - Remote PHP regression/CLI-registration tests and all 16 Python tests passed again using byte-identical deployed runtime files.
 - Deployment epoch: `1791189861`. Later Cron watcher PID `1369774` was observed at epoch `1791190007` with age 12 s, so it started after replacement and loaded the updated watcher. No Cron changes or forced process restart were required.
 - Server staging/test files and this probe's private locks/state were removed after verification. Their reusable test sources remain in the local repository. Public theme, Snippets, other plugins and settings were not changed by this deployment.

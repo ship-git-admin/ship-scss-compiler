@@ -32,7 +32,10 @@ def run_cli(command, cwd, check):
     command = ['/usr/bin/php8.3', '-d', 'error_reporting=0', '/usr/bin/wp', '--path=' + args.wp_path]
     if not args.installed_plugin:
         command.append('--skip-plugins=ship-scss-compiler')
-    command.extend(['eval-file', os.path.join(os.path.dirname(__file__), 'compile_probe.php')])
+        command.extend(['eval-file', os.path.join(os.path.dirname(__file__), 'compile_probe.php')])
+    else:
+        command.extend(['--require=' + os.path.join(os.path.dirname(__file__), 'probe_cli_bootstrap.php'),
+                        'ship-scss', 'compile-changed'])
     result = subprocess.run(command,
                             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     print('WP_CLI_EXIT=' + str(result.returncode), flush=True)
