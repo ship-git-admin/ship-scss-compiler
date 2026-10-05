@@ -1,6 +1,6 @@
 # Release verification
 
-## 1.3.7 — 2026-10-05 (deployed to demo only; no public release)
+## 1.3.7 — 2026-10-05 (demo deployment verified)
 
 - Reproduced a missed compilation on the deployed 1.3.6 trigger: hold its hash-scan lock during a real SFTP overwrite, then release the lock. The watcher acknowledged/skipped the event with status 0; source contained the new color while CSS retained the old color for the rest of the session.
 - Candidate adds two-second reconciliation independent of inotify delivery and temporary lock skips. Unchanged inventories still do not boot WordPress.
@@ -10,7 +10,8 @@
 - Identical failed content has a 60-second trigger cooldown; new content retries immediately and a successful run clears the error cooldown.
 - Remote PHP core/command tests and 16 Python tests passed. Current site's SCSS hash scan measured 6.413 ms average over 30 scans, for 659,934 bytes of SCSS. Not a load test.
 - Test sources, CSS and compiler state were isolated outside the public theme, with filters preventing writes to production compiler options. No new backups were created; unrelated theme files and sync-conflict files were untouched.
-- Targeted deployment completed after the scoped GO: four runtime files plus README/readme were replaced atomically, using local commit `24bb0b2`. Plugin remains active. No GitHub release, tag, push, or new backup was created.
+- Targeted deployment completed after the scoped GO: four runtime files plus README/readme were replaced atomically, using local commit `24bb0b2`. Plugin remains active. At that deployment stage, no GitHub release, tag, push, or new backup was created.
+- After deployment, the user reported smoother near-real-time SCSS compilation and explicitly requested the public 1.3.7 release. This release does not change theme files, Snippets, Cron or production settings.
 
 ### Post-deployment checks
 
