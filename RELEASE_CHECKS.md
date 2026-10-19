@@ -13,7 +13,7 @@
 - Published stable public release `v1.3.8` from `a26e173a0c17b8122df4c2288fe701b03491f8fb`. Build workflow `39212711143` succeeded. Asset: `ship-scss-compiler-1.3.8.zip`, 602,660 bytes; downloaded SHA-256 `fde516471bbe49e7166d369d4d3dc0a4774f4606bc5d9d25c846a2220210c568` matches GitHub's asset digest.
 - ZIP integrity passed; extracted contents match the tagged Git archive and contain no sync-conflict files. Unauthenticated latest-release API returns stable `v1.3.8`.
 - Final candidate: 26 admin-watch unit checks, core suite, command registration, 16 Python tests and changed-PHP lint passed remotely; four Node polling checks passed locally. Nine private HTTP checks passed. Temporary loopback server was stopped, and this run's private remote fixtures/leases/compiler lock were removed.
-- Target site remains on 1.3.7 with its previous class/settings hashes and no test context in production compiler state. Target `_colors.scss`, header/footer CSS hashes remained the same; `main.css` changed during the work independently of the isolated fixture outputs, so no full-theme byte-for-byte unchanged claim is made. No public theme file was an upload/write target of these tests.
+- Target site remains on 1.3.7 with its previous class/settings hashes and no test context in production compiler state. Target `_colors.scss`, header/footer CSS hashes remained the same; `main.css` changed during verification and the cause was not determined, so no full-theme byte-for-byte unchanged claim is made. Explicit fixture writes and uploads targeted only private test files, not public theme files.
 
 ## 1.3.7 — 2026-10-05 (public release and demo deployment verified)
 
