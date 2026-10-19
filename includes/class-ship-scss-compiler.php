@@ -243,7 +243,7 @@ class Ship_SCSS_Compiler {
     }
 
     public function maybe_run() {
-        if ((defined('WP_CLI') && WP_CLI) || (function_exists('is_admin') && is_admin()) || !empty($this->settings()['external_trigger_only'])) {
+        if ((defined('WP_CLI') && WP_CLI) || defined('SHIP_SCSS_WATCH_REQUEST') || (function_exists('is_admin') && is_admin()) || !empty($this->settings()['external_trigger_only'])) {
             return;
         }
         $this->run(false, array(), 'auto');

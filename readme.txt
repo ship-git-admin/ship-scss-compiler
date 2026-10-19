@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.3.7
+Version: 1.3.8
 
 Safely compiles SCSS entrypoints in the active theme with the bundled scssphp library.
 
@@ -41,7 +41,25 @@ Administrators with manage_options can use “Recompile all” or select verifie
 from the status table. Both actions use POST, nonce verification, server-side path
 validation, a shared lock, and a redirect after processing. A lock conflict is not a success.
 
-== FTP/SFTP upload watcher ==
+== Admin-open FTP/SFTP watcher (no server Cron needed) ==
+
+While an administrator keeps a site admin page open, a two-second lightweight
+probe watches SCSS content. Only changed, stable input loads WordPress and runs
+the existing changed-only compiler in a separate request. This also works with
+external-trigger-only enabled. It does not enqueue monitoring on frontend pages,
+require Python/WP-CLI, or alter server Cron/settings. The admin bar shows status.
+
+Closing the admin page stops this mode. Sleeping devices and browser-throttled
+background tabs can delay it. This is not an always-on daemon or an immediate
+delivery guarantee. Server Cron remains the option for unattended monitoring.
+
+Leases require manage_options, a WordPress nonce and the issuing login cookie.
+They expire after three minutes and renew while the page is open. Private lease
+state must be outside the WordPress web root. Multi-tab probes are throttled,
+uploads must stabilize, identical failures are cooled down, and old CSS survives
+compile failure. Unsupported hosting/security rules produce a visible error.
+
+== Server Cron FTP/SFTP watcher ==
 
 On Linux, run `bin/watch_and_compile.py` from a once-per-minute server cron. It watches
 SCSS directories for a completed write or rename for up to 70 seconds, then exits.
@@ -98,6 +116,12 @@ The existing release-only update checker remains in place. It accepts only the a
     ship-scss-compiler-x.y.z.zip
 
 == Changelog ==
+
+= 1.3.8 =
+* Added session-bound lightweight FTP/SFTP monitoring while an admin page is open, without server Cron changes.
+* Start WordPress only for changed stable content; show monitoring/errors in the admin bar.
+* Preserve CSS and retry changed input after failures; share probe throttling across sessions.
+* Update last_scan after unchanged successful scans, not cached or failed scans; preserve state on scan failure.
 
 = 1.3.7 =
 * Recover skipped or missing upload notifications with two-second content reconciliation.

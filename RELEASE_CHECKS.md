@@ -1,5 +1,16 @@
 # Release verification
 
+## 1.3.8 — 2026-10-19
+
+- User authorized plugin-only implementation and GitHub release, and explicitly accepted monitoring only while an admin page is open. No server Cron, theme or Snippets changes are part of this release; the target site's installed plugin is not replaced by these tests.
+- Adds admin-only JavaScript, nonce/capability-gated lease issuance, and a lightweight POST probe. Leases are bound to the issuing login cookie, expire in three minutes, renew while the page is open, and are stored in owner-private temporary storage outside the web root. No paths or commands come from HTTP input.
+- Idle probes do not load WordPress or connect to its database. Changed/stable input uses the existing compiler lock and changed-only run; session/capability/active-plugin/context are revalidated after boot. Compiler failure preserves old CSS and identical failures are throttled. Multiple admin sessions share two-second scanning/acknowledgment.
+- Includes the previously local `last_scan` repair (`55e5e0c`): successful unchanged scans advance the timestamp; cached, failed and lock-skipped runs do not. Empty successful inventories are cached; failed scans preserve state and release locks.
+- Remote Heteml PHP 8.3.35 / Python 3.7: core suite (including 26 deterministic scan tests), WP-CLI registration, admin-watch tests and existing 16 Python tests passed. Local Node syntax/polling tests passed. Remote loopback HTTP tests rejected invalid sessions/methods/body sizes/cross-site requests and confirmed idle no-bootstrap and active-plugin/context revalidation.
+- Real SFTP uploads to isolated SCSS/CSS/state used this site's normal WordPress/WP-CLI stack and the candidate compiler, without changing the public theme or production compiler options. Initial compile: 3 s; partial color overwrite: 4 s; invalid partial: CLI exit 1 with previous blue CSS preserved; corrected temp-file/rename upload: 3 s and red CSS. Four compiler starts total (initial, blue, invalid, corrected); unchanged probes did not start the compiler. These are individual samples, not latency guarantees.
+- Thirty content-fingerprint scans of the actual site's SCSS averaged 4.236 ms. This is a read-only scan benchmark, not an end-to-end latency or concurrent load test.
+- Browser scheduling, background-tab throttling and sleeping devices can delay monitoring. Closing admin pages stops this mode; server Cron remains necessary for unattended watching. Unsupported host/security restrictions show a visible error. Actual logged-in browser behavior after installing the new release remains to be verified on the target site.
+
 ## 1.3.7 — 2026-10-05 (public release and demo deployment verified)
 
 - Reproduced a missed compilation on the deployed 1.3.6 trigger: hold its hash-scan lock during a real SFTP overwrite, then release the lock. The watcher acknowledged/skipped the event with status 0; source contained the new color while CSS retained the old color for the rest of the session.
