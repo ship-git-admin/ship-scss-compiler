@@ -1,13 +1,15 @@
 # Release verification
 
-## 1.3.9 — 2026-10-19 (local implementation; not released or installed)
+## 1.3.9 — 2026-10-19 (public release; not installed on the target site)
 
 - Extends browser-driven FTP monitoring to frontend pages opened by logged-in users with both the `administrator` role and `manage_options`. Other roles are excluded even if given that capability. Issuance and the pre-compilation callback both recheck this policy.
 - Watcher initialization is deferred to `init` after authentication is available. Guest/other-role requests do not initialize its private filesystem or receive the monitoring JavaScript/nonce. Authorized frontend responses use `DONOTCACHEPAGE` and no-cache headers; ordinary visitor responses are not changed by this feature.
 - Compilation remains in a separate request, not the frontend HTML response. Existing synchronous auto-compile settings are not changed. CSS is not hot-replaced in the browser; reload to view generated CSS. Closing all authorized pages stops browser-driven monitoring.
 - Remote isolated Heteml PHP 8.3.35 checks passed: 34 admin-watch checks, core suite (including prior 26 scan-state checks), WP-CLI registration, 16 Python tests, and changed-PHP syntax checks. Local Node syntax and five polling/UI checks passed, including the hidden-admin-bar fallback.
 - Role tests cover frontend administrator, editor/subscriber/shop-manager with `manage_options`, logged-out stale-role data, nonce/capability rejection and selective cache-header behavior. Installed-site browser/cache/CDN behavior remains unverified for this version.
-- Public plugin/theme/Snippets/Cron/settings were not changed. This version has not been pushed, tagged, released or installed. Private remote test artifacts were removed after verification.
+- Isolated remote test artifacts were removed after verification. No target-site plugin, theme, Snippets, Cron or settings changes were made; installed-site browser/cache/CDN behavior remains unverified.
+- Published stable GitHub release `v1.3.9` from commit `2517b1df7f856607009304677f536b98a0f8a4f1`. Build workflow `39214548900` succeeded. Asset: `ship-scss-compiler-1.3.9.zip`, 605,370 bytes; SHA-256 `a906665658ec4b143beb26d3697cca3fb6d3c4008243b64a31c7057373c05324` matches GitHub's asset digest.
+- Downloaded ZIP integrity passed; extracted contents match the tagged Git archive exactly. The tag and ZIP contain the same source commit.
 
 ## 1.3.8 — 2026-10-19
 
