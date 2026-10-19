@@ -2,7 +2,7 @@
 Contributors: ship-git-admin
 Requires at least: 5.8
 Requires PHP: 7.2
-Version: 1.3.8
+Version: 1.3.9
 
 Safely compiles SCSS entrypoints in the active theme with the bundled scssphp library.
 
@@ -41,19 +41,23 @@ Administrators with manage_options can use “Recompile all” or select verifie
 from the status table. Both actions use POST, nonce verification, server-side path
 validation, a shared lock, and a redirect after processing. A lock conflict is not a success.
 
-== Admin-open FTP/SFTP watcher (no server Cron needed) ==
+== Administrator-open FTP/SFTP watcher (no server Cron needed) ==
 
-While an administrator keeps a site admin page open, a two-second lightweight
+While a logged-in administrator keeps an admin or frontend page open, a two-second lightweight
 probe watches SCSS content. Only changed, stable input loads WordPress and runs
 the existing changed-only compiler in a separate request. This also works with
-external-trigger-only enabled. It does not enqueue monitoring on frontend pages,
-require Python/WP-CLI, or alter server Cron/settings. The admin bar shows status.
+external-trigger-only enabled. Monitoring requires both the administrator role
+and manage_options; guests and other roles receive no script or token. It does not
+require Python/WP-CLI or alter server Cron/settings. The admin bar shows status.
+Only the administrator's monitored frontend responses are marked non-cacheable;
+ordinary visitors' cache headers are untouched. Compilation is a separate request,
+not part of the page's HTML response. Reload the page to see newly compiled CSS.
 
-Closing the admin page stops this mode. Sleeping devices and browser-throttled
+Closing all monitored pages stops this mode. Sleeping devices and browser-throttled
 background tabs can delay it. This is not an always-on daemon or an immediate
 delivery guarantee. Server Cron remains the option for unattended monitoring.
 
-Leases require manage_options, a WordPress nonce and the issuing login cookie.
+Leases require the administrator role, manage_options, a nonce and the issuing login cookie.
 They expire after three minutes and renew while the page is open. Private lease
 state must be outside the WordPress web root. Multi-tab probes are throttled,
 uploads must stabilize, identical failures are cooled down, and old CSS survives
@@ -116,6 +120,11 @@ The existing release-only update checker remains in place. It accepts only the a
     ship-scss-compiler-x.y.z.zip
 
 == Changelog ==
+
+= 1.3.9 =
+* Extend monitoring to frontend pages opened by logged-in administrators only.
+* Require both administrator role and manage_options at issuance and before compilation.
+* Prevent monitored administrator HTML from entering page caches; leave visitor responses untouched.
 
 = 1.3.8 =
 * Added session-bound lightweight FTP/SFTP monitoring while an admin page is open, without server Cron changes.

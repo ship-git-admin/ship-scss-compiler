@@ -9,12 +9,14 @@ class Ship_SCSS_Admin_Watch {
 
     public function attach() {
         add_action('admin_enqueue_scripts', array($this, 'enqueue'));
+        add_action('wp_enqueue_scripts', array($this, 'enqueue'));
+        add_action('template_redirect', array($this, 'prevent_frontend_cache'));
         add_action('admin_bar_menu', array($this, 'admin_bar'), 100);
         add_action('wp_ajax_ship_scss_watch_lease', array($this, 'ajax_lease'));
     }
 
     public function enqueue() {
-        if (!current_user_can('manage_options') || is_network_admin()) { return; }
+        if (!self::can_watch() || is_network_admin()) { return; }
         wp_enqueue_script('ship-scss-admin-watch', plugins_url('assets/admin-watch.js', SHIP_SCSS_COMPILER_FILE), array(), SHIP_SCSS_COMPILER_VERSION, true);
         wp_localize_script('ship-scss-admin-watch', 'shipScssWatch', array(
             'ajax' => admin_url('admin-ajax.php'), 'probe' => plugins_url('admin-watch.php', SHIP_SCSS_COMPILER_FILE),
@@ -23,9 +25,22 @@ class Ship_SCSS_Admin_Watch {
     }
 
     public function admin_bar($bar) {
-        if (is_admin() && current_user_can('manage_options') && !is_network_admin()) {
+        if (self::can_watch() && !is_network_admin()) {
             $bar->add_node(array('id' => 'ship-scss-watch', 'title' => 'SCSS監視: 準備中', 'href' => admin_url('options-general.php?page=ship-scss-compiler')));
         }
+    }
+
+    public static function can_watch() {
+        return is_user_logged_in() && current_user_can('manage_options') &&
+            in_array('administrator', (array) wp_get_current_user()->roles, true);
+    }
+
+    public function prevent_frontend_cache() {
+        if (is_admin() || !self::can_watch()) { return; }
+        // Never let a compliant page cache serve an administrator's nonce and
+        // monitoring script to ordinary visitors. Their responses are untouched.
+        if (!defined('DONOTCACHEPAGE')) { define('DONOTCACHEPAGE', true); }
+        nocache_headers();
     }
 
     public static function configuration($compiler) {
@@ -36,7 +51,7 @@ class Ship_SCSS_Admin_Watch {
 
     public function ajax_lease() {
         check_ajax_referer('ship-scss-watch', 'nonce');
-        if (!current_user_can('manage_options')) { wp_send_json_error(array('message' => '監視権限がありません。'), 403); }
+        if (!self::can_watch()) { wp_send_json_error(array('message' => '監視権限がありません。'), 403); }
         try {
             $cookie = isset($_COOKIE[LOGGED_IN_COOKIE]) ? (string) $_COOKIE[LOGGED_IN_COOKIE] : '';
             if ($cookie === '') { throw new RuntimeException('管理者セッションを確認できません。'); }

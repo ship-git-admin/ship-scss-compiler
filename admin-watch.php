@@ -18,7 +18,7 @@ try {
         finally { ob_end_clean(); }
         $compiler = $GLOBALS['ship_scss_compiler'] ?? null;
         if (!$compiler || !defined('SHIP_SCSS_COMPILER_FILE') || realpath(SHIP_SCSS_COMPILER_FILE) !== realpath(__DIR__ . '/ship-scss-compiler.php') ||
-            get_current_user_id() !== $lease['user'] || !current_user_can('manage_options') ||
+            get_current_user_id() !== $lease['user'] || !Ship_SCSS_Admin_Watch::can_watch() ||
             Ship_SCSS_Admin_Watch::configuration($compiler) !== $lease['config']) {
             return array('renew' => true);
         }

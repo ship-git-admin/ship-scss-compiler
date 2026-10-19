@@ -1,4 +1,4 @@
-/* Admin-only polling. Never installed on frontend pages. Tokens stay in memory/POST. */
+/* Administrator-only polling on admin/frontend pages. Tokens stay in memory/POST. */
 (() => {
     'use strict';
     const config = window.shipScssWatch;

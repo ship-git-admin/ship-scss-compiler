@@ -1,10 +1,14 @@
 <?php
 // WordPress-free session, throttling and upload-stability regression tests.
 require_once dirname(__DIR__) . '/includes/class-ship-scss-admin-watch.php';
-$watch_capability = false; $watch_admin = true; $watch_nonce = false; $watch_hooks = array(); $watch_scripts = array();
+$watch_capability = false; $watch_admin = true; $watch_logged_in = true; $watch_roles = array('administrator');
+$watch_nonce = false; $watch_hooks = array(); $watch_scripts = array(); $watch_headers = 0;
 function current_user_can($capability) { return $GLOBALS['watch_capability']; }
+function is_user_logged_in() { return $GLOBALS['watch_logged_in']; }
+function wp_get_current_user() { return (object) array('roles' => $GLOBALS['watch_roles']); }
 function is_admin() { return $GLOBALS['watch_admin']; }
 function is_network_admin() { return false; }
+function nocache_headers() { $GLOBALS['watch_headers']++; }
 function add_action($hook, $callback, $priority = 10) { $GLOBALS['watch_hooks'][] = $hook; }
 function wp_enqueue_script() { $GLOBALS['watch_scripts'][] = 'script'; }
 function wp_localize_script() { $GLOBALS['watch_scripts'][] = 'config'; }
@@ -14,7 +18,7 @@ function wp_create_nonce($action) { return 'fixture-nonce'; }
 function check_ajax_referer($action, $query) { if (!$GLOBALS['watch_nonce']) { throw new RuntimeException('bad_nonce'); } }
 function wp_send_json_error($data, $status) { throw new RuntimeException('http_' . $status); }
 define('SHIP_SCSS_COMPILER_FILE', dirname(__DIR__) . '/ship-scss-compiler.php');
-define('SHIP_SCSS_COMPILER_VERSION', '1.3.8');
+define('SHIP_SCSS_COMPILER_VERSION', '1.3.9');
 function watch_assert($test, $name) {
     if (!$test) { throw new RuntimeException('FAIL: ' . $name); }
     echo 'ok: ' . $name . "\n";
@@ -28,14 +32,43 @@ file_put_contents($source, '$color: #112233;');
 $watch = new Ship_SCSS_Admin_Watch($fixture . '/private');
 $watch->attach();
 watch_assert(in_array('wp_ajax_ship_scss_watch_lease', $watch_hooks, true) &&
-    !in_array('wp_ajax_nopriv_ship_scss_watch_lease', $watch_hooks, true) && !in_array('wp_enqueue_scripts', $watch_hooks, true),
-    'monitor registers no frontend or anonymous AJAX hooks');
+    !in_array('wp_ajax_nopriv_ship_scss_watch_lease', $watch_hooks, true) && in_array('wp_enqueue_scripts', $watch_hooks, true),
+    'monitor supports frontend enqueue but never anonymous AJAX');
 $watch->enqueue();
 watch_assert(!$watch_scripts, 'non-administrators receive no monitoring script or configuration');
 $watch_capability = true; $watch->enqueue();
 watch_assert($watch_scripts === array('script', 'config'), 'administrators receive the polling script and nonce configuration');
+$watch_scripts = array(); $watch_admin = false;
+$watch->enqueue();
+watch_assert($watch_scripts === array('script', 'config'), 'logged-in administrator receives frontend monitoring');
+$bar = new class {
+    public $nodes = array();
+    public function add_node($node) { $this->nodes[] = $node; }
+};
+$watch->admin_bar($bar);
+watch_assert(count($bar->nodes) === 1, 'frontend administrator sees the monitoring status in the admin bar');
+$watch->prevent_frontend_cache();
+watch_assert($watch_headers === 1 && defined('DONOTCACHEPAGE') && DONOTCACHEPAGE,
+    'administrator monitoring page is marked private/non-cacheable');
+foreach (array('editor', 'subscriber', 'shop_manager') as $role) {
+    $watch_roles = array($role); $watch_scripts = array(); $bar->nodes = array();
+    $watch->enqueue(); $watch->admin_bar($bar);
+    $watch->prevent_frontend_cache();
+    watch_assert(!$watch_scripts && !$bar->nodes && !Ship_SCSS_Admin_Watch::can_watch() && $watch_headers === 1,
+        $role . ' is excluded even when granted manage_options');
+}
+$watch_roles = array('administrator'); $watch_logged_in = false; $watch_scripts = array();
+$watch->enqueue();
+$watch->prevent_frontend_cache();
+watch_assert(!$watch_scripts && !Ship_SCSS_Admin_Watch::can_watch() && $watch_headers === 1,
+    'anonymous visitor receives no monitoring or cache-header changes even with stale role data');
+$watch_logged_in = true; $watch_admin = true;
 try { $watch->ajax_lease(); watch_assert(false, 'bad nonce accepted'); }
 catch (RuntimeException $error) { watch_assert($error->getMessage() === 'bad_nonce', 'lease issuance requires a valid WordPress nonce'); }
+$watch_nonce = true; $watch_roles = array('editor');
+try { $watch->ajax_lease(); watch_assert(false, 'editor accepted'); }
+catch (RuntimeException $error) { watch_assert($error->getMessage() === 'http_403', 'editor cannot issue a lease despite manage_options'); }
+$watch_roles = array('administrator');
 $watch_nonce = true; $watch_capability = false;
 try { $watch->ajax_lease(); watch_assert(false, 'non-admin accepted'); }
 catch (RuntimeException $error) { watch_assert($error->getMessage() === 'http_403', 'lease issuance requires manage_options'); }

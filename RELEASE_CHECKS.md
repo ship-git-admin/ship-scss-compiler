@@ -1,5 +1,14 @@
 # Release verification
 
+## 1.3.9 — 2026-10-19 (local implementation; not released or installed)
+
+- Extends browser-driven FTP monitoring to frontend pages opened by logged-in users with both the `administrator` role and `manage_options`. Other roles are excluded even if given that capability. Issuance and the pre-compilation callback both recheck this policy.
+- Watcher initialization is deferred to `init` after authentication is available. Guest/other-role requests do not initialize its private filesystem or receive the monitoring JavaScript/nonce. Authorized frontend responses use `DONOTCACHEPAGE` and no-cache headers; ordinary visitor responses are not changed by this feature.
+- Compilation remains in a separate request, not the frontend HTML response. Existing synchronous auto-compile settings are not changed. CSS is not hot-replaced in the browser; reload to view generated CSS. Closing all authorized pages stops browser-driven monitoring.
+- Remote isolated Heteml PHP 8.3.35 checks passed: 34 admin-watch checks, core suite (including prior 26 scan-state checks), WP-CLI registration, 16 Python tests, and changed-PHP syntax checks. Local Node syntax and five polling/UI checks passed, including the hidden-admin-bar fallback.
+- Role tests cover frontend administrator, editor/subscriber/shop-manager with `manage_options`, logged-out stale-role data, nonce/capability rejection and selective cache-header behavior. Installed-site browser/cache/CDN behavior remains unverified for this version.
+- Public plugin/theme/Snippets/Cron/settings were not changed. This version has not been pushed, tagged, released or installed. Private remote test artifacts were removed after verification.
+
 ## 1.3.8 — 2026-10-19
 
 - User authorized plugin-only implementation and GitHub release, and explicitly accepted monitoring only while an admin page is open. No server Cron, theme or Snippets changes are part of this release; the target site's installed plugin is not replaced by these tests.

@@ -3,12 +3,13 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 const source = fs.readFileSync(require('path').join(__dirname, '../assets/admin-watch.js'), 'utf8');
-async function scenario(replies, enabled = true) {
-    const label = {}, calls = [], timers = new Map(), events = {};
+async function scenario(replies, enabled = true, noBar = false) {
+    const label = { style: {} }, calls = [], timers = new Map(), events = {}, appended = [];
     let id = 0;
     const window = { addEventListener: (name, fn) => { events[name] = fn; } };
     if (enabled) window.shipScssWatch = { ajax: '/admin-ajax.php', probe: '/admin-watch.php', nonce: 'nonce' };
-    const context = { window, document: { querySelector: () => label }, AbortController, URLSearchParams, Date,
+    const context = { window, document: { querySelector: () => noBar ? null : label,
+        createElement: () => label, body: { appendChild: node => appended.push(node) } }, AbortController, URLSearchParams, Date,
         setTimeout: (fn, delay) => { timers.set(++id, { fn, delay }); return id; }, clearTimeout: n => timers.delete(n),
         fetch: async (url, options) => {
             calls.push({ url, options });
@@ -19,7 +20,7 @@ async function scenario(replies, enabled = true) {
     vm.runInNewContext(source, context);
     const flush = () => new Promise(resolve => setImmediate(resolve));
     await flush();
-    return { label, calls, timers, events, flush };
+    return { label, calls, timers, events, flush, appended };
 }
 (async () => {
     let test = await scenario([{ body: { success: true, data: { token: 'secret' } } }, { body: { status: 'compiled' } }]);
@@ -45,4 +46,8 @@ async function scenario(replies, enabled = true) {
     test = await scenario([], false);
     assert.strictEqual(test.calls.length, 0);
     console.log('ok: no polling without admin configuration');
+    test = await scenario([{ body: { success: true, data: { token: 'secret' } } }, { body: { status: 'unchanged' } }], true, true);
+    assert.strictEqual(test.appended.length, 1);
+    assert(test.label.textContent.includes('監視中'));
+    console.log('ok: authorized frontend shows monitoring status even with the admin bar hidden');
 })().catch(error => { console.error(error); process.exitCode = 1; });

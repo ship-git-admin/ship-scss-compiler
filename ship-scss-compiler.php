@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Ship SCSS Compiler
  * Description: Compiles the active theme's SCSS files safely with scssphp.
- * Version: 1.3.8
+ * Version: 1.3.9
  * Requires PHP: 7.2
  */
 
 defined('ABSPATH') || exit;
 
-define('SHIP_SCSS_COMPILER_VERSION', '1.3.8');
+define('SHIP_SCSS_COMPILER_VERSION', '1.3.9');
 define('SHIP_SCSS_COMPILER_FILE', __FILE__);
 define('SHIP_SCSS_COMPILER_DIR', plugin_dir_path(__FILE__));
 define('SHIP_SCSS_COMPILER_REPOSITORY', 'https://github.com/ship-git-admin/ship-scss-compiler');
@@ -30,9 +30,15 @@ require_once SHIP_SCSS_COMPILER_DIR . 'includes/class-ship-scss-compiler.php';
 // the same instance whose hooks and commands were registered.
 $GLOBALS['ship_scss_compiler'] = $ship_scss_compiler = new Ship_SCSS_Compiler();
 
-if ((!defined('WP_CLI') || !WP_CLI) && is_admin()) {
-    require_once SHIP_SCSS_COMPILER_DIR . 'includes/class-ship-scss-admin-watch.php';
-    (new Ship_SCSS_Admin_Watch())->attach();
+if (!defined('WP_CLI') || !WP_CLI) {
+    // Resolve authentication after plugins load. Anonymous/other-role frontend
+    // requests do not even initialize the watcher or its private filesystem.
+    add_action('init', static function () {
+        if (!is_user_logged_in() || !current_user_can('manage_options') ||
+            !in_array('administrator', (array) wp_get_current_user()->roles, true)) { return; }
+        require_once SHIP_SCSS_COMPILER_DIR . 'includes/class-ship-scss-admin-watch.php';
+        (new Ship_SCSS_Admin_Watch())->attach();
+    }, 20);
 }
 
 /** Backwards-compatible helper wrappers used by previous deployments. */
